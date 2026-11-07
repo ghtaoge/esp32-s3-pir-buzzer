@@ -86,7 +86,7 @@
       <view class="number-row"><label for="releaseMs">连续安静时间<text class="caption">50–5000 毫秒</text></label><input id="releaseMs" class="number-input" type="number" maxlength="5" value="{{draft.releaseMs}}" disabled="{{!connected || actionBusy}}" data-field="releaseMs" bindinput="draftNumber" /></view>
       <view class="number-row"><label for="warmupMs">PIR 启动稳定时间<text class="caption">0–120000 毫秒</text></label><input id="warmupMs" class="number-input" type="number" maxlength="6" value="{{draft.warmupMs}}" disabled="{{!connected || actionBusy || draft.sensor !== 'pir'}}" data-field="warmupMs" bindinput="draftNumber" /></view>
       <view class="number-row"><label for="toneHz">无源蜂鸣器频率<text class="caption">200–5000 Hz</text></label><input id="toneHz" class="number-input" type="number" maxlength="4" value="{{draft.toneHz}}" disabled="{{!connected || actionBusy || draft.buzzerMode !== 'passive'}}" data-field="toneHz" bindinput="draftNumber" /></view>
-      <view class="description">PIR：OUT → GPIO3。蜂鸣器：S/IN → GPIO7。雷达：TX → GPIO18、RX → GPIO17，共地，模块按规格供电。</view>
+      <view class="description">PIR：OUT → GPIO13。蜂鸣器：S/IN → GPIO7。雷达：TX → GPIO18、RX → GPIO17，共地，模块按规格供电。</view>
       <view wx:if="{{connected}}" class="caption">{{diagnostics}} · 固件 {{version}}</view>
     </view>
     <button class="button primary" loading="{{actionBusy}}" disabled="{{!connected || actionBusy || !dirty}}" bindtap="save">保存到设备</button>

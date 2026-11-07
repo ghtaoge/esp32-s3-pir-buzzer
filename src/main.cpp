@@ -14,7 +14,7 @@
 
 using namespace sentinel;
 namespace {
-constexpr uint8_t PirPin=3, BuzzerPin=7, RadarRx=18, RadarTx=17;
+constexpr uint8_t PirPin=13, BuzzerPin=7, RadarRx=18, RadarTx=17;
 constexpr char ServiceUuid[]="7b6a0001-6c2d-4b7e-9f10-15a2b3c4d5e6";
 constexpr char RxUuid[]="7b6a0002-6c2d-4b7e-9f10-15a2b3c4d5e6";
 constexpr char TxUuid[]="7b6a0003-6c2d-4b7e-9f10-15a2b3c4d5e6";
@@ -127,7 +127,7 @@ void stateJson(JsonObject out) {
   out["radarFrameErrors"]=radarParser.errors; out["settingsCorrupt"]=storage.settingsCorrupt;
 }
 void snapshot(JsonObject out) {
-  out["deviceId"]=deviceId; out["version"]="1.0.0"; out["bootId"]=bootId;
+  out["deviceId"]=deviceId; out["version"]="1.0.1"; out["bootId"]=bootId;
   configJson(out["config"].to<JsonObject>(),config); stateJson(out["state"].to<JsonObject>());
   JsonObject meta=out["logs"].to<JsonObject>(); meta["oldest"]=logs.oldest; meta["latest"]=logs.latest;
   meta["count"]=logs.count; meta["capacity"]=LogCapacity;

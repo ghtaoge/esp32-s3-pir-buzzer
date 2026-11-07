@@ -150,7 +150,7 @@
     $('connection-badge').className = 'badge' + (connected ? session.kind === 'demo' ? ' demo' : ' connected' : '');
     $('connection-badge').textContent = connected ? session.kind === 'demo' ? '演示模式' : '已连接 · ' + session.transport.kind : session ? '连接中…' : '未连接';
     $('device-name').textContent = connected ? (session.kind === 'demo' ? '模拟设备 · ' : 'S3-Sentinel · ') + snapshot.deviceId : '连接你的开发板';
-    $('device-detail').textContent = connected ? `固件 ${snapshot.version} · ${session.transport.kind} · PIR GPIO3 / 蜂鸣器 GPIO7 / 雷达 UART17、18` : '推荐 USB 串口；也可通过附近的 BLE 设备连接。';
+    $('device-detail').textContent = connected ? `固件 ${snapshot.version} · ${session.transport.kind} · PIR GPIO13 / 蜂鸣器 GPIO7 / 雷达 UART17、18` : '推荐 USB 串口；也可通过附近的 BLE 设备连接。';
     $('sensor-label').textContent = connected ? snapshot.config.sensor === 'radar' ? 'LD2410C 雷达' : 'PIR 人体感应' : '—';
     $('phase').textContent = connected ? names[state.phase] || state.phase : '等待连接';
     $('presence').textContent = connected ? state.present ? state.motion ? '检测到活动目标' : '有人静止在场' : '当前未检测到目标' : '连接后查看人体活动与输出状态';

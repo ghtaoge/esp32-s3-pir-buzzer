@@ -81,8 +81,8 @@ never manual tests or individual radar data frames.
 | radarStillThreshold | 45 | integer 0..100 |
 
 Reject unknown keys, wrong JSON types, fractions and out-of-range values;
-configuration changes are atomic. Sensor/output defaults preserve the original
-repo's GPIO3 PIR and GPIO7 non-inverted passive buzzer. Radar uses UART1:
+configuration changes are atomic. PIR input uses GPIO13, with GPIO7 driving
+the non-inverted passive buzzer by default. Radar uses UART1:
 GPIO18 RX <- radar TX, GPIO17 TX -> radar RX, 256000 8N1. Module power is 5 V;
 UART logic is 3.3 V. Configure gate resolution to 0.75 m or verify compatibility
 before applying gates. Real module/firmware support is checked, not assumed.

@@ -1,6 +1,6 @@
 {
   "name": "esp32-s3-pir-buzzer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "ESP32-S3 motion sentinel with USB/BLE PC and WeChat clients",
   "scripts": {
