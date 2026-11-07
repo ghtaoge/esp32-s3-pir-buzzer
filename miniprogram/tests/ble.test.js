@@ -1,13 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const protocol = require('../utils/protocol');
-const { SentinelClient, message } = require('../utils/ble');
+const { SentinelClient, message, validateSnapshot } = require('../utils/ble');
 
 function mockWx() {
   const listeners = { found: new Set(), value: new Set(), connection: new Set() };
   const commands = [], writes = [], held = [];
   let activeWrites = 0, maxActiveWrites = 0;
-  const snapshot = { deviceId: 'chip-a', version: '1.0.0', bootId: 'boot-a', config: {...protocol.DEFAULT_CONFIG}, state: { phase: 'ready', triggerCount: 0, sounding: false, timeKnown: true }, logs: { oldest: 0, latest: 0, count: 0, capacity: 1000 } };
+  const snapshot = { deviceId: 'chip-a', version: '1.0.2', bootId: 'boot-a', hardware: { sensorModel: 'HC-SR505', pirPin: 13, buzzerPin: 7, radarSupported: false }, config: {...protocol.DEFAULT_CONFIG}, state: { phase: 'ready', triggerCount: 0, sounding: false, timeKnown: true }, logs: { oldest: 0, latest: 0, count: 0, capacity: 1000 } };
   const mock = { listeners, commands, writes, held, snapshot, suppress: new Set(), holdWrites: false, stopCount: 0 };
   const decoder = new protocol.LineDecoder();
   function reply(message) {
@@ -125,6 +125,18 @@ test('scan results stay bounded, merge name-less updates and release discovery t
 test('permission and privacy failures retain actionable platform context', () => {
   assert.match(message({ api: 'openBluetoothAdapter', errCode: 10001 }), /打开蓝牙/);
   assert.match(message({ api: 'startBluetoothDevicesDiscovery', errMsg: 'api scope is not declared in privacy' }), /隐私保护指引/);
+});
+
+test('HC-SR505 profile rejects old pins, another sensor and missing hardware metadata', () => {
+  const good = mockWx().snapshot;
+  assert.equal(validateSnapshot(good), good);
+  const modern = { ...good, config: { ...good.config } };
+  ['radarMaxGate', 'radarMotionThreshold', 'radarStillThreshold'].forEach(key => { delete modern.config[key]; });
+  assert.equal(validateSnapshot(modern), modern, 'legacy radar readback fields are optional');
+  assert.throws(() => validateSnapshot({ ...good, hardware: undefined }), /HC-SR505 专用固件/);
+  assert.throws(() => validateSnapshot({ ...good, hardware: { ...good.hardware, pirPin: 3 } }), /GPIO13/);
+  assert.throws(() => validateSnapshot({ ...good, config: { ...good.config, sensor: 'radar' } }), /硬件配置不匹配/);
+  assert.throws(() => validateSnapshot({ ...good, hardware: { ...good.hardware, radarSupported: true } }), /硬件配置不匹配/);
 });
 
 test('cancelled discovery stops even when native start completes after cancellation', async () => {

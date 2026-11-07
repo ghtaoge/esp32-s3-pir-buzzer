@@ -16,6 +16,8 @@
   </view>
 
   <view wx:if="{{connected && storageWarning}}" class="notice">{{storageWarning}}</view>
+  <view wx:if="{{connected && profileWarning}}" class="notice">{{profileWarning}}</view>
+  <view wx:elif="{{connected && profileNotice}}" class="notice">{{profileNotice}}</view>
 
   <view wx:if="{{tab === 'device'}}">
     <view wx:if="{{!connected}}" class="panel">
@@ -34,9 +36,9 @@
     <view wx:else>
       <view class="connected-line"><text>{{connectedName}}</text><button class="link-button" bindtap="disconnect">断开</button></view>
       <view class="status-panel {{sounding ? 'sounding' : ''}}">
-        <text class="status-kicker">{{config.sensor === 'radar' ? '雷达活动检测' : 'PIR 活动检测'}}</text>
+        <text class="status-kicker">HC-SR505（三脚 PIR）</text>
         <view class="status-title">{{phaseLabel}}</view>
-        <view class="status-detail">{{motionLabel}} · {{presenceLabel}}</view>
+        <view class="status-detail">{{motionLabel}}</view>
         <view class="trigger-summary">本次启动活动 <text>{{triggerCount}}</text> 次</view>
       </view>
       <view class="panel toggles">
@@ -48,8 +50,7 @@
         <button class="button secondary" disabled="{{actionBusy}}" bindtap="test">试听设备声音</button>
         <button class="button secondary" disabled="{{actionBusy}}" bindtap="refresh">刷新状态</button>
       </view>
-      <view wx:if="{{config.sensor === 'radar'}}" class="inline-values"><text>参考距离 {{distanceLabel}}</text><text>运动能量 {{energyLabel}}</text></view>
-      <view wx:if="{{config.sensor === 'pir'}}" class="notice">HC-SR505 的输出保持时间由模块决定；小程序不能调高其硬件灵敏度，也不能分辨保持期间的每次动作。</view>
+      <view class="notice">OUT 高表示检测信号处于保持状态，不能证明人此刻仍在动或静止在场。HC-SR505 的硬件灵敏度和输出保持时间不能通过小程序调整。</view>
       <view class="description bottom-note">已保存声音：{{savedSoundLabel}}。试听会绕过静音和布防，并单独记录。断开手机后，设备仍按已保存参数运行。</view>
     </view>
   </view>
@@ -57,8 +58,8 @@
   <view wx:if="{{tab === 'settings'}}">
     <view wx:if="{{!connected}}" class="notice">连接后读取设备实际参数。以下离线显示固件默认值，暂不可修改。</view>
     <view class="panel">
-      <view class="section-title">硬件模式</view>
-      <view class="field"><text class="field-label">传感器</text><picker mode="selector" range="{{sensorOptions}}" value="{{sensorIndex}}" disabled="{{!connected || actionBusy}}" bindchange="sensorChange"><view class="picker-value">{{sensorOptions[sensorIndex]}} <text>⌄</text></view></picker></view>
+      <view class="section-title">HC-SR505 专用硬件</view>
+      <view class="field"><text class="field-label">固定传感器</text><view>HC-SR505（三脚 PIR）</view><view class="caption">VCC → 5V · GND → GND · OUT → GPIO13</view></view>
       <view class="field"><text class="field-label">蜂鸣器</text><picker mode="selector" range="{{buzzerOptions}}" value="{{buzzerIndex}}" disabled="{{!connected || actionBusy}}" bindchange="buzzerChange"><view class="picker-value">{{buzzerOptions[buzzerIndex]}} <text>⌄</text></view></picker></view>
       <view class="caption">三脚不代表有源。请按模块资料选择 PWM 或开关模式，控制输入须兼容 3.3V。</view>
       <view wx:if="{{draft.buzzerMode === 'active'}}" class="toggle-row"><view><view>低电平触发</view><view class="caption">仅适用于有源模块；按实物标识确认</view></view><switch color="#087f51" checked="{{draft.activeLow}}" disabled="{{!connected || actionBusy}}" bindchange="polarityChange" /></view>
@@ -70,35 +71,28 @@
       <view class="section-head"><view class="section-title">鸣叫与再次触发</view><text class="caption">1000 毫秒 = 1 秒</text></view>
       <view class="number-row"><label for="beepMs">响铃时长<text class="caption">100–10000 毫秒</text></label><input id="beepMs" class="number-input" type="number" maxlength="7" value="{{draft.beepMs}}" disabled="{{!connected || actionBusy}}" data-field="beepMs" bindinput="draftNumber" /></view>
       <view class="number-row"><label for="cooldownMs">软件冷却<text class="caption">0–10000 毫秒</text></label><input id="cooldownMs" class="number-input" type="number" maxlength="7" value="{{draft.cooldownMs}}" disabled="{{!connected || actionBusy}}" data-field="cooldownMs" bindinput="draftNumber" /></view>
-      <view class="caption">冷却结束且活动连续释放后才会重新待命；持续活动不会自动再响。</view>
-    </view>
-    <view class="panel {{draft.sensor !== 'radar' ? 'inactive-panel' : ''}}">
-      <view class="section-title">雷达检测范围与阈值</view>
-      <view wx:if="{{draft.sensor !== 'radar'}}" class="description">当前为 PIR 模式，这些项目不可用。</view>
-      <view wx:else class="description">需连接 LD2410C 串口。阈值越低越敏感，也更容易受干扰；保存需要雷达实际确认。</view>
-      <view class="number-row"><label for="radarMaxGate">最远距离门<text class="caption">2–8；每门 0.75 米</text></label><input id="radarMaxGate" class="number-input" type="number" maxlength="2" value="{{draft.radarMaxGate}}" disabled="{{!connected || actionBusy || draft.sensor !== 'radar'}}" data-field="radarMaxGate" bindinput="draftNumber" /></view>
-      <view class="number-row"><label for="radarMotionThreshold">运动能量阈值<text class="caption">0–100；越低越敏感</text></label><input id="radarMotionThreshold" class="number-input" type="number" maxlength="3" value="{{draft.radarMotionThreshold}}" disabled="{{!connected || actionBusy || draft.sensor !== 'radar'}}" data-field="radarMotionThreshold" bindinput="draftNumber" /></view>
-      <view class="number-row"><label for="radarStillThreshold">静止能量阈值<text class="caption">0–100；用于存在状态</text></label><input id="radarStillThreshold" class="number-input" type="number" maxlength="3" value="{{draft.radarStillThreshold}}" disabled="{{!connected || actionBusy || draft.sensor !== 'radar'}}" data-field="radarStillThreshold" bindinput="draftNumber" /></view>
+      <view class="caption">冷却结束且 OUT 连续为低电平后才会重新待命；信号持续为高不会自动再响。</view>
     </view>
     <button class="link-button advanced-toggle" bindtap="toggleAdvanced">{{advanced ? '收起高级参数' : '展开高级参数'}}</button>
     <view wx:if="{{advanced}}" class="panel">
-      <view class="number-row"><label for="confirmMs">活动确认时间<text class="caption">20–2000 毫秒</text></label><input id="confirmMs" class="number-input" type="number" maxlength="5" value="{{draft.confirmMs}}" disabled="{{!connected || actionBusy}}" data-field="confirmMs" bindinput="draftNumber" /></view>
-      <view class="number-row"><label for="releaseMs">连续安静时间<text class="caption">50–5000 毫秒</text></label><input id="releaseMs" class="number-input" type="number" maxlength="5" value="{{draft.releaseMs}}" disabled="{{!connected || actionBusy}}" data-field="releaseMs" bindinput="draftNumber" /></view>
-      <view class="number-row"><label for="warmupMs">PIR 启动稳定时间<text class="caption">0–120000 毫秒</text></label><input id="warmupMs" class="number-input" type="number" maxlength="6" value="{{draft.warmupMs}}" disabled="{{!connected || actionBusy || draft.sensor !== 'pir'}}" data-field="warmupMs" bindinput="draftNumber" /></view>
+      <view class="number-row"><label for="confirmMs">高电平确认时间<text class="caption">20–2000 毫秒</text></label><input id="confirmMs" class="number-input" type="number" maxlength="5" value="{{draft.confirmMs}}" disabled="{{!connected || actionBusy}}" data-field="confirmMs" bindinput="draftNumber" /></view>
+      <view class="number-row"><label for="releaseMs">连续低电平时间<text class="caption">50–5000 毫秒</text></label><input id="releaseMs" class="number-input" type="number" maxlength="5" value="{{draft.releaseMs}}" disabled="{{!connected || actionBusy}}" data-field="releaseMs" bindinput="draftNumber" /></view>
+      <view class="number-row"><label for="warmupMs">PIR 启动稳定时间<text class="caption">0–120000 毫秒</text></label><input id="warmupMs" class="number-input" type="number" maxlength="6" value="{{draft.warmupMs}}" disabled="{{!connected || actionBusy}}" data-field="warmupMs" bindinput="draftNumber" /></view>
       <view class="number-row"><label for="toneHz">无源蜂鸣器频率<text class="caption">200–5000 Hz</text></label><input id="toneHz" class="number-input" type="number" maxlength="4" value="{{draft.toneHz}}" disabled="{{!connected || actionBusy || draft.buzzerMode !== 'passive'}}" data-field="toneHz" bindinput="draftNumber" /></view>
-      <view class="description">PIR：OUT → GPIO13。蜂鸣器：S/IN → GPIO7。雷达：TX → GPIO18、RX → GPIO17，共地，模块按规格供电。</view>
+      <view class="description">HC-SR505：VCC → 5V、GND → GND、OUT → GPIO13。蜂鸣器 S/IN → GPIO7，共地，蜂鸣器电源按其规格连接。</view>
+      <view class="caption">确认、低电平释放和启动稳定时间都是程序等待时间，不会改变 HC-SR505 的硬件灵敏度或保持时间。</view>
       <view wx:if="{{connected}}" class="caption">{{diagnostics}} · 固件 {{version}}</view>
     </view>
-    <button class="button primary" loading="{{actionBusy}}" disabled="{{!connected || actionBusy || !dirty}}" bindtap="save">保存到设备</button>
+    <button class="button primary" loading="{{actionBusy}}" disabled="{{!connected || actionBusy || (!dirty && !profileSaveFailed)}}" bindtap="save">{{profileSaveFailed ? '重新保存专用配置' : '保存到设备'}}</button>
     <button class="link-button" disabled="{{!connected || actionBusy || !dirty}}" bindtap="discardDraft">放弃未保存修改</button>
-    <view class="description bottom-note">设备确认并持久保存后才显示成功。修改传感器或输出参数会停止当前鸣叫。</view>
+    <view class="description bottom-note">设备确认并持久保存后才显示成功。修改输出参数会停止当前鸣叫。</view>
   </view>
 
   <view wx:if="{{tab === 'logs'}}">
     <view class="panel">
       <view class="section-head"><view class="section-title">触发记录</view><text class="badge">缓存 {{cachedCount}} 条</text></view>
       <view wx:if="{{cacheDeviceLabel}}" class="caption cache-name">{{cacheDeviceLabel}}</view>
-      <view class="description">北京时间；未校时记录保留启动编号与相对时间。活动次数不等于人数，手动测试单独标记。</view>
+      <view class="description">北京时间；未校时记录保留启动编号与相对时间。活动触发是一轮检测输出片段，不等于人数；手动测试单独标记。</view>
       <view class="two-actions">
         <button wx:if="{{!syncing}}" class="button secondary" disabled="{{!connected}}" bindtap="syncLogs">增量同步</button>
         <button wx:else class="button secondary" bindtap="cancelSync">暂停同步</button>

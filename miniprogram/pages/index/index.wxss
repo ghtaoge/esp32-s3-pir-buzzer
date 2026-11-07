@@ -40,7 +40,6 @@
 .toggle-row+ .toggle-row { border-top: 1rpx solid #edf1ee; }
 .toggle-row>view { flex: 1; min-width: 0; }
 .toggle-row switch { transform: scale(.9); transform-origin: right center; flex-shrink: 0; }
-.inline-values { display: flex; justify-content: space-between; gap: 12rpx; flex-wrap: wrap; margin: 22rpx 0; font-size: 23rpx; color: #61766a; }
 .notice { background: #fff2de; color: #81602d; padding: 23rpx; border-radius: 16rpx; font-size: 23rpx; line-height: 1.7; margin-bottom: 22rpx; }
 .compact { padding: 16rpx; margin-top: 12rpx; }
 .field { margin: 26rpx 0; }
@@ -49,7 +48,6 @@
 .number-row { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; margin: 26rpx 0; }
 .number-row label { min-width: 0; flex: 1; font-size: 26rpx; line-height: 1.6; }
 .number-input { background: #f1f5f2; border-radius: 12rpx; text-align: right; width: 158rpx; padding: 18rpx; font-size: 29rpx; min-height: 42rpx; flex-shrink: 0; }
-.inactive-panel { background: #f9fbfa; }
 .advanced-toggle { margin-top: -10rpx; }
 .bottom-note { margin: 16rpx 8rpx; }
 .error { background: #fff0ec; border-radius: 16rpx; padding: 22rpx 24rpx 4rpx; margin-bottom: 22rpx; }

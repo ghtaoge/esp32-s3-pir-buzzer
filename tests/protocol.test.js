@@ -41,11 +41,14 @@ test('oversize/malformed frames are discarded through LF and buffer stays bounde
 test('config validation is strict, atomic, and leaves defaults unchanged', () => {
   for (const patch of [null, [], {beepMs:'3000'}, {beepMs:1.5}, {armed:1}, {sensor:'other'}, {buzzerMode:'other'}, {sound:'speech'}, {sound:1}, {wat:1}, {releaseMs:49}, {toneHz:Infinity}, JSON.parse('{"__proto__":{}}')])
     assert.throws(() => P.validateConfig(patch));
-  const merged = P.validateConfig({sensor:'radar',beepMs:100,activeLow:true});
+  const merged = P.validateConfig({sensor:'pir',beepMs:100,activeLow:true});
   assert.equal(merged.beepMs,100); assert.equal(merged.cooldownMs,1000);
   assert.equal(P.DEFAULT_CONFIG.beepMs,3000);
   assert.deepEqual(P.validateConfig({}),P.DEFAULT_CONFIG);
   for(const sound of ['single','double','chime','siren']) assert.equal(P.validateConfig({sound}).sound,sound);
+  assert.throws(()=>P.validateConfig({sensor:'radar'}),/Invalid sensor/);
+  for(const key of ['radarMaxGate','radarMotionThreshold','radarStillThreshold'])
+    assert.throws(()=>P.validateConfig({[key]:P.DEFAULT_CONFIG[key]}),/HC-SR505/);
 });
 
 test('RPC serializes full writes, correlates ACKs and routes notifications', async () => {

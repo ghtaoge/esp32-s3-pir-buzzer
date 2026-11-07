@@ -12,8 +12,16 @@ function validateSnapshot(snapshot, expectedDeviceId) {
     typeof snapshot.state.timeKnown !== 'boolean' || !Number.isSafeInteger(snapshot.state.triggerCount) || snapshot.state.triggerCount < 0 ||
     !snapshot.logs || !['oldest', 'latest', 'count', 'capacity'].every(key => Number.isSafeInteger(snapshot.logs[key]) && snapshot.logs[key] >= 0) ||
     snapshot.logs.capacity < 1 || snapshot.logs.capacity > 1000 || snapshot.logs.count > snapshot.logs.capacity) throw new Error('设备返回的协议版本或状态不兼容');
+  const hardware = snapshot.hardware;
+  if (snapshot.config.sensor !== 'pir' || !hardware || hardware.sensorModel !== 'HC-SR505' ||
+    hardware.pirPin !== 13 || hardware.buzzerPin !== 7 || hardware.radarSupported !== false) {
+    throw new Error('硬件配置不匹配，请烧录 HC-SR505 专用固件 1.0.2 或更新版本（OUT GPIO13，蜂鸣器 GPIO7）');
+  }
   const known = {};
-  Object.keys(protocol.DEFAULT_CONFIG).forEach(key => {
+  const legacyFields = ['radarMaxGate', 'radarMotionThreshold', 'radarStillThreshold'];
+  // Legacy readback fields are optional. They are neither required from the
+  // HC-only firmware nor included in a new configuration patch.
+  Object.keys(protocol.DEFAULT_CONFIG).filter(key => !legacyFields.includes(key)).forEach(key => {
     if (!Object.prototype.hasOwnProperty.call(snapshot.config, key)) throw new Error('设备参数不完整，请更新固件');
     known[key] = snapshot.config[key];
   });

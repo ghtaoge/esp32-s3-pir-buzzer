@@ -104,17 +104,17 @@
       this.now = runtime.now || (() => Date.now());
       this.setInterval = runtime.setInterval || ((callback, delay) => globalThis.setInterval(callback, delay));
       this.clearInterval = runtime.clearInterval || (handle => globalThis.clearInterval(handle));
-      this.config = { ...P.DEFAULT_CONFIG };
+      this.config = { ...P.DEFAULT_CONFIG, sensor: 'pir' };
       this.bootAt = this.now(); this.deviceId = 'DEMO-' + this.bootAt;
       this.bootId = 'demo'; this.entries = []; this.sequence = 0; this.timeOffset = null;
       this.motionUntil = 0; this.motionAt = null; this.quietAt = this.bootAt;
       this.awaitRelease = false; this.beepEnd = 0; this.coolEnd = 0; this.beepCooldown = 0;
-      this.state = { motion: false, present: false, sounding: false, phase: 'ready', uptimeMs: 0, triggerCount: 0, timeKnown: false, distanceCm: 0, motionEnergy: 0, stillEnergy: 0, radarAgeMs: 0, freeHeap: 180000, minFreeHeap: 175000, loopMaxUs: 350, queueDrops: 0, txDrops: 0 };
+      this.state = { motion: false, present: false, sounding: false, phase: 'ready', uptimeMs: 0, triggerCount: 0, timeKnown: false, distanceCm: 0, motionEnergy: 0, stillEnergy: 0, radarAgeMs: 0, freeHeap: 180000, minFreeHeap: 175000, loopMaxUs: 350, queueDrops: 0, txDrops: 0, storageReady: true, storageErrors: 0, settingsMigrated: false, profileSaveFailed: false };
       this.decoder = new P.LineDecoder(); this.lastStateAt = 0;
     }
     async connect() { this.timer = this.setInterval(() => this.tick(), 25); return this; }
     send(value) { if (!this.closed) this.onBytes(P.encodeFrame(value)); }
-    snapshot() { return { deviceId: this.deviceId, version: '1.0.0-demo', bootId: this.bootId, config: { ...this.config }, state: { ...this.state }, logs: this.logInfo() }; }
+    snapshot() { return { deviceId: this.deviceId, version: '1.0.2-demo', bootId: this.bootId, hardware: { sensorModel: 'HC-SR505', pirPin: 13, buzzerPin: 7, radarSupported: false }, config: { ...this.config }, state: { ...this.state }, logs: this.logInfo() }; }
     logInfo() { return { oldest: this.entries.length ? this.entries[0].seq : this.sequence + 1, latest: this.sequence, count: this.entries.length, capacity: 1000 }; }
     addLog(type, result) {
       const entry = { seq: ++this.sequence, bootId: this.bootId, uptimeMs: this.now() - this.bootAt, epochMs: this.timeOffset === null ? 0 : this.now() + this.timeOffset, type, result, distanceCm: this.state.distanceCm, energy: this.state.motionEnergy };
@@ -123,7 +123,7 @@
     }
     startBeep() { this.state.sounding = true; this.state.phase = 'sounding'; this.beepEnd = this.now() + this.config.beepMs; this.beepCooldown = this.config.cooldownMs; }
     stopBeep() { this.state.sounding = false; this.coolEnd = this.now() + this.beepCooldown; this.awaitRelease = true; this.state.phase = this.now() < this.coolEnd ? 'cooldown' : 'waiting_release'; }
-    simulateActivity(durationMs = 500) {
+    simulateActivity(durationMs = 8000) {
       if (this.closed) return;
       this.motionUntil = this.now() + Math.max(durationMs, this.config.confirmMs + 50); this.motionAt = null;
     }
@@ -132,7 +132,7 @@
       const now = this.now(); this.state.uptimeMs = now - this.bootAt;
       const motion = now < this.motionUntil;
       this.state.motion = motion; this.state.present = motion;
-      this.state.motionEnergy = motion ? 75 : 0; this.state.distanceCm = motion && this.config.sensor === 'radar' ? 150 : 0;
+      this.state.motionEnergy = 0; this.state.stillEnergy = 0; this.state.distanceCm = 0;
       if (motion) { this.quietAt = null; if (this.motionAt === null) this.motionAt = now; }
       else { this.motionAt = null; if (this.quietAt === null) this.quietAt = now; }
       if (this.state.sounding && now >= this.beepEnd) this.stopBeep();
@@ -158,6 +158,9 @@
             if (!Number.isSafeInteger(command.epochMs) || command.epochMs < 0) throw new Error('invalid_time');
             this.timeOffset = command.epochMs - this.now(); this.state.timeKnown = true; data = this.snapshot();
           } else if (command.op === 'set') {
+            if (command.config && Object.prototype.hasOwnProperty.call(command.config, 'sensor') && command.config.sensor !== 'pir') throw new Error('当前硬件固定为 HC-SR505（三脚PIR），不支持切换传感器。');
+            if (command.config && Object.keys(command.config).some(key => /^radar/.test(key))) throw new Error('HC-SR505 不支持雷达距离或能量阈值参数。');
+            if (this.state.profileSaveFailed) throw new Error('HC-SR505 配置迁移未保存，当前不能保存参数。');
             const next = P.validateConfig(command.config, this.config);
             if (this.state.sounding && (!next.armed || next.muted || next.sensor !== this.config.sensor || next.buzzerMode !== this.config.buzzerMode || next.activeLow !== this.config.activeLow || next.toneHz !== this.config.toneHz)) this.stopBeep();
             this.config = next; data = this.snapshot();

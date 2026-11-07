@@ -102,7 +102,7 @@ function displayEntry(entry) {
     label: entry.type === 'test' ? '手动测试' : '活动触发',
     resultLabel: ({ sounded: '已启动鸣叫', muted: '静音，仅记录', disarmed: '未布防，仅记录' })[entry.result] || entry.result,
     timeLabel: timeLabel(entry),
-    detail: entry.type === 'test' ? '不计入活动触发次数' : entry.distanceCm > 0 ? `参考距离 ${entry.distanceCm} cm · 能量 ${entry.energy}` : '独立活动片段，不代表人数'
+    detail: entry.type === 'test' ? '不计入活动触发次数' : '一轮检测输出片段，不代表人数'
   });
 }
 

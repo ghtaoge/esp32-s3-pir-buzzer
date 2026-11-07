@@ -5,7 +5,7 @@ const protocol = require('../utils/protocol');
 const { LogCache } = require('../utils/cache');
 
 function snapshot(config = {}) {
-  return { deviceId: 'chip-a', bootId: 'boot-a', version: '1.0.0', config: {...protocol.DEFAULT_CONFIG, ...config}, state: { phase: 'ready', sounding: false, triggerCount: 0, timeKnown: true }, logs: { oldest: 0, latest: 0, count: 0, capacity: 1000 } };
+  return { deviceId: 'chip-a', bootId: 'boot-a', version: '1.0.2', hardware: { sensorModel: 'HC-SR505', pirPin: 13, buzzerPin: 7, radarSupported: false }, config: {...protocol.DEFAULT_CONFIG, ...config}, state: { phase: 'ready', sounding: false, triggerCount: 0, timeKnown: true }, logs: { oldest: 0, latest: 0, count: 0, capacity: 1000 } };
 }
 function fixture(request) {
   const toasts = [], storage = new Map(); let modal;
@@ -22,7 +22,7 @@ function fixture(request) {
 }
 const entry = seq => ({ seq, bootId: 'boot-a', uptimeMs: seq * 1000, epochMs: 0, type: 'motion', result: 'muted', distanceCm: 0, energy: 0 });
 
-test('save only succeeds after device ACK and retains draft on radar rejection', async () => {
+test('save only succeeds after device ACK and retains draft on persistence rejection', async () => {
   let resolve;
   const { instance, toasts } = fixture(() => new Promise(done => { resolve = done; }));
   instance.data.draft.beepMs = '800'; instance.data.dirty = true;
@@ -30,11 +30,11 @@ test('save only succeeds after device ACK and retains draft on radar rejection',
   assert.equal(instance.data.actionBusy, true); assert.equal(toasts.length, 0); assert.equal(instance.data.config.beepMs, 3000);
   resolve(snapshot({ beepMs: 800 })); await pending;
   assert.deepEqual(toasts, ['设备已确认并保存']); assert.equal(instance.data.dirty, false); assert.equal(instance.data.config.beepMs, 800);
-  instance.client.request = async () => { throw new Error('radar acknowledgement failed'); };
-  instance.data.draft.sensor = 'radar'; instance.data.sensorIndex = 1; instance.data.dirty = true;
+  instance.client.request = async () => { throw new Error('persistence_failed'); };
+  instance.data.draft.beepMs = '1200'; instance.data.dirty = true;
   await instance.save();
   assert.equal(toasts.length, 1); assert.equal(instance.data.config.sensor, 'pir'); assert.equal(instance.data.dirty, true);
-  assert.match(instance.data.error, /acknowledgement failed/);
+  assert.match(instance.data.error, /persistence_failed/);
 });
 
 test('invalid numeric draft never reaches transport; switch is confirmed rather than optimistic', async () => {
@@ -112,4 +112,30 @@ test('sound preset waits for ACK and real device audition uses saved preset, not
   resolve(snapshot({ sound: 'chime' }));
   await new Promise(done => setImmediate(done));
   assert.equal(instance.data.actionBusy, false);
+});
+
+test('HC migration failure remains visible and can be retried without changing parameters', async () => {
+  const sent = [];
+  const { instance, toasts } = fixture(async (op, fields) => {
+    sent.push({ op, fields });
+    return { ...snapshot(), state: { ...snapshot().state, profileSaveFailed: false, settingsMigrated: true } };
+  });
+  instance._latestState = { phase: 'sensor_offline', motion: true, present: true, distanceCm: 100, motionEnergy: 90, settingsMigrated: true, profileSaveFailed: true };
+  instance._renderState();
+  assert.equal(instance.data.phaseLabel, '传感器未就绪');
+  assert.equal(instance.data.motionLabel, '检测信号 OUT 高');
+  assert.equal('distanceLabel' in instance.data, false); assert.equal('presenceLabel' in instance.data, false);
+  assert.match(instance.data.profileWarning, /迁移未能保存/); assert.match(instance.data.profileNotice, /旧版设置已迁移/);
+  assert.equal(instance.data.dirty, false);
+  await instance.save();
+  assert.deepEqual(sent, [{ op: 'set', fields: { config: { sensor: 'pir' } } }]);
+  assert.equal(instance.data.profileSaveFailed, false); assert.equal(instance.data.profileWarning, '');
+  assert.deepEqual(toasts, ['设备已确认并保存']);
+});
+
+test('an acknowledged response still reporting migration-save failure never shows saved success', async () => {
+  const { instance, toasts } = fixture(async () => ({ ...snapshot({ beepMs: 1000 }), state: { ...snapshot().state, profileSaveFailed: true } }));
+  instance.data.draft.beepMs = '1000'; instance.data.dirty = true;
+  await instance.save();
+  assert.equal(toasts.length, 0); assert.match(instance.data.error, /保存失败/); assert.equal(instance.data.profileSaveFailed, true);
 });

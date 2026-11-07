@@ -37,6 +37,7 @@
     const next = Object.assign({}, DEFAULT_CONFIG, base || {});
     Object.keys(patch).forEach(function (key) {
       if (!Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, key)) throw new Error('Unknown config field: ' + key);
+      if (key.indexOf('radar') === 0) throw new Error('HC-SR505 does not support radar parameters');
       const value = patch[key];
       if (Object.prototype.hasOwnProperty.call(LIMITS, key)) {
         const bounds = LIMITS[key];
@@ -45,7 +46,7 @@
       } else if (typeof DEFAULT_CONFIG[key] === 'boolean') {
         if (typeof value !== 'boolean') throw new Error(key + ' must be boolean');
       } else {
-        const choices = {sensor:['pir','radar'],buzzerMode:['active','passive'],sound:['single','double','chime','siren']};
+        const choices = {sensor:['pir'],buzzerMode:['active','passive'],sound:['single','double','chime','siren']};
         if (!choices[key] || !choices[key].includes(value)) throw new Error('Invalid ' + key);
       }
       next[key] = value;

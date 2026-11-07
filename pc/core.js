@@ -77,8 +77,8 @@
     return '"' + text.replace(/"/g, '""') + '"';
   }
   function toCsv(entries) {
-    const rows = [['序号', '时间（北京时间或开机相对时间）', '类型', '结果', '距离cm', '能量', '启动编号']];
-    for (const entry of entries) rows.push([entry.seq, displayTime(entry), entry.type, entry.result, entry.distanceCm, entry.energy, entry.bootId]);
+    const rows = [['序号', '时间（北京时间或开机相对时间）', '类型', '结果', '启动编号']];
+    for (const entry of entries) rows.push([entry.seq, displayTime(entry), entry.type, entry.result, entry.bootId]);
     return '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n');
   }
   return { MAX_LOGS, LogStore, validEntry, displayTime, csvCell, toCsv };

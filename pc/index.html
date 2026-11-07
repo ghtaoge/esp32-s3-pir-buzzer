@@ -30,6 +30,7 @@
       </section>
       <div id="notice" class="notice" role="status" aria-live="polite">请使用桌面版 Chrome 或 Edge，在本地地址打开控制台。</div>
       <p id="storage-warning" class="demo-banner" role="alert" hidden></p>
+      <p id="profile-warning" class="demo-banner" role="status" hidden></p>
 
       <section id="panel-device" role="tabpanel" aria-labelledby="tab-device">
         <div id="demo-banner" class="demo-banner" hidden>演示模式 · 所有读数与事件均为模拟，不会操作真实硬件。</div>
@@ -39,7 +40,7 @@
             <div class="signal-ring" id="signal-ring" aria-hidden="true">◉</div>
             <h2 id="phase">等待连接</h2><p id="presence">连接后查看人体活动与输出状态</p>
             <div class="state-pills"><span id="motion-label">活动 —</span><span id="sound-label">蜂鸣器 —</span><span id="time-label">时间 —</span></div>
-            <dl class="reading-row"><div><dt>本次开机触发</dt><dd id="trigger-count">—</dd></div><div><dt>目标距离</dt><dd id="distance">—</dd></div><div><dt>运动能量</dt><dd id="energy">—</dd></div></dl>
+            <dl class="reading-row"><div><dt>本次开机触发</dt><dd id="trigger-count">—</dd></div><div><dt>OUT 信号</dt><dd id="pir-level">—</dd></div><div><dt>开机时长</dt><dd id="uptime">—</dd></div></dl>
           </section>
           <section class="card controls-card" aria-label="报警控制">
             <h2>报警控制</h2>
@@ -48,7 +49,7 @@
             <button id="stop" class="stop-button" type="button" disabled>立即停止鸣叫</button>
             <div class="button-row"><button id="test" type="button" disabled>试听已保存声音</button><button id="refresh" class="quiet" type="button" disabled>刷新状态</button></div>
             <p class="hint">试听使用设备已保存的声音，未保存的参数不生效。手动试听会发声，不受布防／静音限制，也不会计入感应触发次数。</p>
-            <div id="demo-actions" class="demo-actions" hidden><span>模拟场景</span><div class="button-row"><button id="demo-motion" type="button">一次新活动</button><button id="demo-held" type="button">持续活动 10 秒</button></div></div>
+            <div id="demo-actions" class="demo-actions" hidden><span>模拟 HC-SR505 输出，实际模块保持时间会有差异</span><div class="button-row"><button id="demo-motion" type="button">一次触发（OUT 约8秒）</button><button id="demo-held" type="button">OUT 持高 10 秒</button></div></div>
           </section>
         </div>
         <section class="card performance-card" aria-label="设备性能遥测"><div><h2>运行状态</h2><p>设备上报的实时测量；演示模式中的数值仅作展示。</p></div><dl><div><dt>空闲内存</dt><dd id="heap">—</dd></div><div><dt>最低空闲内存</dt><dd id="min-heap">—</dd></div><div><dt>主循环最大耗时</dt><dd id="loop-max">—</dd></div><div><dt>队列丢弃 / 发送丢弃</dt><dd id="drops">—</dd></div><div><dt>持久化存储</dt><dd id="storage-status">—</dd></div></dl></section>
@@ -58,11 +59,12 @@
         <form id="settings-form">
           <div class="settings-grid">
             <section class="card"><h2>感应与再次触发</h2><p class="hint">持续活动只算一轮；先平静，再接受下一轮活动。</p>
-              <label>传感器<select name="sensor"><option value="pir">PIR · HC-SR505 / HC-SR501</option><option value="radar">毫米波雷达 · LD2410C</option></select></label>
+              <input name="sensor" type="hidden" value="pir">
+              <p class="inline-note">固定传感器：HC-SR505（三脚PIR）<br>VCC → 5V · GND → GND · OUT → GPIO13</p>
               <div class="field-pair"><label>响铃时长（秒）<input name="beepMs" type="number" min="0.1" max="10" step="0.1" required></label><label>鸣叫后冷却（秒）<input name="cooldownMs" type="number" min="0" max="10" step="0.1" required></label></div>
-              <div class="field-pair"><label>活动确认（毫秒）<input name="confirmMs" type="number" min="20" max="2000" step="1" required></label><label>平静恢复（毫秒）<input name="releaseMs" type="number" min="50" max="5000" step="1" required></label></div>
-              <label>PIR 上电稳定时间（秒）<input name="warmupMs" type="number" min="0" max="120" step="1" required></label>
-              <p id="pir-note" class="inline-note">PIR 的硬件灵敏度和保持时间无法通过程序调整；持续高电平期间的新动作不能被分开识别。</p>
+              <div class="field-pair"><label>软件活动确认（毫秒）<input name="confirmMs" type="number" min="20" max="2000" step="1" required></label><label>软件平静恢复（毫秒）<input name="releaseMs" type="number" min="50" max="5000" step="1" required></label></div>
+              <label>HC-SR505 上电稳定时间（秒）<input name="warmupMs" type="number" min="0" max="120" step="1" required></label>
+              <p id="pir-note" class="inline-note">HC-SR505 的硬件灵敏度和输出保持时间无法通过程序调整。持续高电平期间的新动作不能被分开识别；高电平也不等同于静止人体在场。</p>
             </section>
             <section class="card"><h2>蜂鸣器模块</h2><p class="hint">控制端 GPIO7。供电按模块额定值，控制信号须兼容 3.3V。</p>
               <label>驱动方式<select name="buzzerMode"><option value="passive">无源 · PWM 音调</option><option value="active">有源 · 通断控制</option></select></label>
@@ -72,11 +74,6 @@
               <label class="check-row"><input name="activeLow" type="checkbox">有源模块低电平触发</label>
               <p class="inline-note">默认保留原项目的无源、非反相驱动。仅标有 VCC / GND / S，并不能确定模块是有源还是无源。</p>
             </section>
-            <section class="card radar-card"><h2>雷达检测区间</h2><p class="hint">仅 LD2410C 模式生效；降低能量阈值会更敏感，也更容易受环境干扰。</p>
-              <label>最远检测距离<select name="radarMaxGate"><option value="2">1.50 米</option><option value="3">2.25 米</option><option value="4">3.00 米</option><option value="5">3.75 米</option><option value="6">4.50 米</option><option value="7">5.25 米</option><option value="8">6.00 米</option></select></label>
-              <div class="field-pair"><label>运动能量阈值<input name="radarMotionThreshold" type="number" min="0" max="100" step="1" required></label><label>静止能量阈值<input name="radarStillThreshold" type="number" min="0" max="100" step="1" required></label></div>
-              <p class="inline-note">静止存在用于状态显示，不直接反复触发蜂鸣器。距离按 0.75 米区间配置，参数须经过模块确认。</p>
-            </section>
           </div>
           <div class="save-bar"><span id="settings-feedback">连接设备后读取实际参数。</span><button id="save-settings" class="primary" type="submit" disabled>保存到设备</button></div>
         </form>
@@ -84,7 +81,7 @@
 
       <section id="panel-logs" role="tabpanel" aria-labelledby="tab-logs" hidden>
         <section class="card log-card"><div class="log-heading"><div><h2>触发记录</h2><p id="log-description">连接后同步设备上的事件记录；触发次数不代表人数。</p></div><div class="button-row"><button id="sync-logs" type="button" disabled>同步记录</button><button id="export-logs" type="button" disabled>导出 CSV</button><button id="clear-logs" class="danger quiet" type="button" disabled>清空设备记录</button></div></div>
-          <div class="table-wrap"><table><thead><tr><th scope="col">序号</th><th scope="col">时间 / 开机相对时间</th><th scope="col">类型</th><th scope="col">鸣叫结果</th><th scope="col">距离</th></tr></thead><tbody id="log-rows"><tr><td colspan="5" class="empty">尚无记录</td></tr></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th scope="col">序号</th><th scope="col">时间 / 开机相对时间</th><th scope="col">类型</th><th scope="col">鸣叫结果</th><th scope="col">启动编号</th></tr></thead><tbody id="log-rows"><tr><td colspan="5" class="empty">尚无记录</td></tr></tbody></table></div>
           <div class="pagination"><span id="page-info">第 1 页</span><div class="button-row"><button id="page-prev" type="button" disabled>上一页</button><button id="page-next" type="button" disabled>下一页</button></div></div>
         </section>
       </section>

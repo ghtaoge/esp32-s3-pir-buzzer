@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id), form = $('settings-form');
   const fields = form.elements;
   const seconds = new Set(['beepMs', 'cooldownMs', 'warmupMs']);
-  const radarFields = ['radarMaxGate', 'radarMotionThreshold', 'radarStillThreshold'];
+  const editableFields = new Set(['beepMs', 'cooldownMs', 'confirmMs', 'releaseMs', 'warmupMs', 'buzzerMode', 'activeLow', 'toneHz', 'sound']);
   let session = null, snapshot = null, logs = null, tab = 'device', page = 0, formBaseline = {};
   let frame = 0, logsDirty = true, busy = false, syncing = false, disconnecting = false, saveTimer = null;
   const names = { warmup: '传感器稳定中', ready: '等待新活动', sounding: '正在鸣叫', cooldown: '冷却中', waiting_release: '等待活动平静', sensor_offline: '传感器未就绪' };
@@ -28,19 +28,19 @@
   }
   function enableFields() {
     const connected = !!snapshot && !!session && !session.rpc.closed;
-    const radar = fields.namedItem('sensor').value === 'radar';
+    const canSave = connected && !snapshot.state.profileSaveFailed;
     const active = fields.namedItem('buzzerMode').value === 'active';
-    for (const input of form.querySelectorAll('input, select')) input.disabled = !connected || busy;
-    for (const name of radarFields) fields.namedItem(name).disabled = !connected || busy || !radar;
-    fields.namedItem('warmupMs').disabled = !connected || busy || radar;
-    fields.namedItem('toneHz').disabled = !connected || busy || active;
-    fields.namedItem('activeLow').disabled = !connected || busy || !active;
+    for (const input of form.querySelectorAll('input, select')) input.disabled = !canSave || busy;
+    fields.namedItem('sensor').value = 'pir'; fields.namedItem('sensor').disabled = true;
+    fields.namedItem('toneHz').disabled = !canSave || busy || active;
+    fields.namedItem('activeLow').disabled = !canSave || busy || !active;
     $('sound-hint').textContent = active ? '有源蜂鸣器只改变通断节奏，音高固定；“叮咚”和“警报”也以节奏呈现。' : '无源蜂鸣器可改变节奏和音高，基础音高由下方音调设置决定。';
-    $('pir-note').hidden = radar;
-    $('save-settings').disabled = !connected || busy;
+    $('save-settings').disabled = !canSave || busy;
   }
   function applySnapshot(data, resetForm = false) {
     if (!data || typeof data.deviceId !== 'string' || !data.config || !data.state || !data.version || !data.version.startsWith('1.')) throw new Error('设备固件协议不兼容，请更新到 1.x 固件');
+    const hardware = data.hardware;
+    if (!hardware || hardware.sensorModel !== 'HC-SR505' || hardware.pirPin !== 13 || hardware.buzzerPin !== 7 || hardware.radarSupported !== false || data.config.sensor !== 'pir') throw new Error('当前控制台仅支持 HC-SR505（三脚PIR）专用固件：OUT 接 GPIO13、蜂鸣器接 GPIO7。请烧录 1.0.2 或更新的对应硬件版本。');
     if (snapshot && snapshot.deviceId !== data.deviceId) throw new Error('连接中的设备标识发生变化，请重新连接');
     snapshot = data;
     if (resetForm) setForm(data.config);
@@ -127,7 +127,7 @@
     const rows = document.createDocumentFragment();
     for (const entry of entries.slice(page * 50, page * 50 + 50)) {
       const row = document.createElement('tr');
-      const values = [entry.seq, C.displayTime(entry), entry.type === 'test' ? '手动测试' : '活动触发', resultNames[entry.result] || entry.result, entry.distanceCm ? (entry.distanceCm / 100).toFixed(2) + ' m' : '—'];
+      const values = [entry.seq, C.displayTime(entry), entry.type === 'test' ? '手动测试' : '活动触发', resultNames[entry.result] || entry.result, entry.bootId || '—'];
       for (const value of values) { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); }
       rows.append(row);
     }
@@ -145,22 +145,23 @@
     for (const id of ['connect-serial', 'connect-ble', 'connect-demo']) $(id).disabled = !!session || disconnecting;
     $('disconnect').disabled = !session;
     for (const id of ['armed', 'muted', 'test', 'refresh', 'clear-logs']) $(id).disabled = !connected || busy;
+    for (const id of ['armed', 'muted']) $(id).disabled = !connected || busy || snapshot.state.profileSaveFailed;
     $('stop').disabled = !connected; $('sync-logs').disabled = !connected || syncing;
     $('demo-banner').hidden = !connected || session.kind !== 'demo'; $('demo-actions').hidden = !connected || session.kind !== 'demo';
     $('connection-badge').className = 'badge' + (connected ? session.kind === 'demo' ? ' demo' : ' connected' : '');
     $('connection-badge').textContent = connected ? session.kind === 'demo' ? '演示模式' : '已连接 · ' + session.transport.kind : session ? '连接中…' : '未连接';
     $('device-name').textContent = connected ? (session.kind === 'demo' ? '模拟设备 · ' : 'S3-Sentinel · ') + snapshot.deviceId : '连接你的开发板';
-    $('device-detail').textContent = connected ? `固件 ${snapshot.version} · ${session.transport.kind} · PIR GPIO13 / 蜂鸣器 GPIO7 / 雷达 UART17、18` : '推荐 USB 串口；也可通过附近的 BLE 设备连接。';
-    $('sensor-label').textContent = connected ? snapshot.config.sensor === 'radar' ? 'LD2410C 雷达' : 'PIR 人体感应' : '—';
+    $('device-detail').textContent = connected ? `固件 ${snapshot.version} · ${session.transport.kind} · HC-SR505：VCC → 5V / GND → GND / OUT → GPIO13 · 蜂鸣器 GPIO7` : 'HC-SR505（三脚PIR）· OUT 接 GPIO13，蜂鸣器控制接 GPIO7；支持 USB 串口或 BLE。';
+    $('sensor-label').textContent = 'HC-SR505（三脚PIR）';
     $('phase').textContent = connected ? names[state.phase] || state.phase : '等待连接';
-    $('presence').textContent = connected ? state.present ? state.motion ? '检测到活动目标' : '有人静止在场' : '当前未检测到目标' : '连接后查看人体活动与输出状态';
-    $('motion-label').textContent = '活动 ' + (connected ? state.motion ? '有' : '无' : '—');
+    $('presence').textContent = connected ? state.motion ? '模块 OUT 为高电平（包含模块保持时间）' : '模块 OUT 为低电平' : '连接后查看 HC-SR505 的 OUT 信号与蜂鸣器状态';
+    $('motion-label').textContent = 'OUT ' + (connected ? state.motion ? 'HIGH' : 'LOW' : '—');
     $('sound-label').textContent = '蜂鸣器 ' + (connected ? state.sounding ? '正在输出' : '关闭' : '—');
     $('time-label').textContent = connected ? state.timeKnown ? '已校时' : '未校时' : '时间 —';
     $('signal-ring').classList.toggle('active', connected && state.motion);
     $('trigger-count').textContent = connected ? state.triggerCount : '—';
-    $('distance').textContent = connected && snapshot.config.sensor === 'radar' && state.distanceCm > 0 ? (state.distanceCm / 100).toFixed(2) + ' m' : '—';
-    $('energy').textContent = connected && snapshot.config.sensor === 'radar' ? state.motionEnergy : '—';
+    $('pir-level').textContent = connected ? state.motion ? 'HIGH' : 'LOW' : '—';
+    $('uptime').textContent = connected ? (state.uptimeMs / 1000).toFixed(0) + ' 秒' : '—';
     $('heap').textContent = connected ? (state.freeHeap / 1024).toFixed(1) + ' KB' : '—';
     $('min-heap').textContent = connected ? (state.minFreeHeap / 1024).toFixed(1) + ' KB' : '—';
     $('loop-max').textContent = connected ? state.loopMaxUs + ' μs' : '—';
@@ -170,8 +171,10 @@
     $('storage-status').textContent = !connected ? '—' : !storageReady ? '尚未就绪' : storageErrors ? `${storageErrors} 次错误` : '就绪';
     $('storage-warning').hidden = !connected || (storageReady && !storageErrors);
     $('storage-warning').textContent = !storageReady ? '设备存储尚未就绪；当前记录可能尚未持久化，参数保存也可能失败。请稍后刷新状态，不要视为已保存。' : '设备报告存储错误，部分记录或设置可能未持久化；请检查后重新读取设备确认。';
+    $('profile-warning').hidden = !connected || (!state.settingsMigrated && !state.profileSaveFailed);
+    $('profile-warning').textContent = connected && state.profileSaveFailed ? '旧配置已切换到 HC-SR505，但迁移结果未能持久化：当前不能保存参数、布防或静音设置。请检查设备存储后重启或重新读取；立即停止和试听仍可使用。' : '设备已将旧配置迁移为 HC-SR505 专用硬件方案：OUT → GPIO13，蜂鸣器 → GPIO7。';
     if (connected) { $('armed').checked = snapshot.config.armed; $('muted').checked = snapshot.config.muted; }
-    $('settings-feedback').textContent = connected ? session.kind === 'demo' ? '演示配置；保存不会写入真实硬件。' : '保存后等待设备确认；雷达参数需模块回读成功。' : '连接设备后读取实际参数。';
+    $('settings-feedback').textContent = connected ? state.profileSaveFailed ? '旧配置迁移未保存，当前不能写入参数。' : session.kind === 'demo' ? 'HC-SR505 演示配置；保存不会写入真实硬件。' : '保存后等待设备确认；当前硬件固定为 HC-SR505（三脚PIR）。' : '连接设备后读取实际参数。';
     $('log-description').textContent = logs ? `${logs.deviceId} · 设备记录与本机缓存按序号去重；触发次数不代表人数。` : '连接后同步设备上的事件记录；触发次数不代表人数。';
     if (logsDirty) { renderLogs(); logsDirty = false; }
     enableFields();
@@ -198,10 +201,12 @@
   form.addEventListener('change', enableFields);
   form.addEventListener('submit', event => {
     event.preventDefault(); if (!snapshot) return;
+    if (snapshot.state.profileSaveFailed) { message('设备配置迁移尚未持久化，当前不能保存参数。', true); return; }
     let config;
     try {
       config = {};
       for (const [name, previous] of Object.entries(formBaseline)) {
+        if (!editableFields.has(name)) continue;
         const input = fields.namedItem(name); if (!input || input.disabled) continue;
         if (input.type !== 'checkbox' && input.value.trim() === '') throw new Error('请填写完整参数');
         const value = typeof previous === 'boolean' ? input.checked : typeof previous === 'number' ? Number(input.value) * (seconds.has(name) ? 1000 : 1) : input.value;

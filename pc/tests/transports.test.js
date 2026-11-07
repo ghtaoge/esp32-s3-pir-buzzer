@@ -22,7 +22,9 @@ function simulator() {
 }
 test('demo uses the real wire protocol; held activity cannot repeat or extend a beep', async () => {
   const s = simulator(); await s.device.connect();
-  assert.equal((await s.request('get')).data.version, '1.0.0-demo');
+  const initial = (await s.request('get')).data;
+  assert.equal(initial.version, '1.0.2-demo');
+  assert.deepEqual(initial.hardware, { sensorModel: 'HC-SR505', pirPin: 13, buzzerPin: 7, radarSupported: false });
   await s.request('set', { config: { beepMs: 300, cooldownMs: 100, confirmMs: 50, releaseMs: 50 } });
   s.device.simulateActivity(2000); s.advance(100);
   assert.equal(s.device.state.sounding, true); assert.equal(s.device.state.triggerCount, 1);
@@ -189,4 +191,41 @@ test('late ACK from a previous RPC session cannot satisfy a new same-id request'
     rpc.receive(P.encodeFrame(reply));
     assert.match((await request).deviceId, /^DEMO-/);
   } finally { rpc.close(new Error('done')); await device.disconnect(); }
+});
+test('HC-SR505 profile rejects sensor switching and unsupported radar fields atomically', async () => {
+  const s = simulator(); await s.device.connect();
+  try {
+    const before = { ...s.device.config };
+    const rejected = await s.request('set', { config: { sensor: 'radar', beepMs: 100 } });
+    assert.equal(rejected.ok, false); assert.match(rejected.message, /HC-SR505/);
+    assert.deepEqual(s.device.config, before);
+    const unsupported = await s.request('set', { config: { radarMaxGate: 8 } });
+    assert.equal(unsupported.ok, false); assert.match(unsupported.message, /HC-SR505/);
+    assert.deepEqual(s.device.config, before);
+    const accepted = await s.request('set', { config: { beepMs: 1200, confirmMs: 100, releaseMs: 200, sound: 'double' } });
+    assert.equal(accepted.ok, true); assert.equal(accepted.data.config.sensor, 'pir');
+    assert.equal(accepted.data.config.beepMs, 1200); assert.equal(accepted.data.config.sound, 'double');
+  } finally { await s.device.disconnect(); }
+});
+test('HC-SR505 demo defaults to an 8-second held output without pretending to measure distance', async () => {
+  const s = simulator(); await s.device.connect();
+  try {
+    s.device.simulateActivity(); s.advance(500);
+    assert.equal(s.device.state.triggerCount, 1); assert.equal(s.device.state.sounding, true);
+    assert.equal(s.device.state.distanceCm, 0); assert.equal(s.device.state.motionEnergy, 0);
+    s.advance(3500); assert.equal(s.device.state.motion, true); assert.equal(s.device.state.sounding, false);
+    s.advance(3500); assert.equal(s.device.state.motion, true); assert.equal(s.device.state.triggerCount, 1);
+    s.advance(1000); assert.equal(s.device.state.motion, false);
+  } finally { await s.device.disconnect(); }
+});
+test('failed HC profile persistence blocks configuration writes without blocking reads or stop', async () => {
+  const s = simulator(); await s.device.connect();
+  try {
+    s.device.state.settingsMigrated = true; s.device.state.profileSaveFailed = true;
+    const before = { ...s.device.config };
+    assert.equal((await s.request('set', { config: { beepMs: 1200 } })).ok, false);
+    assert.deepEqual(s.device.config, before);
+    const read = await s.request('get'); assert.equal(read.ok, true); assert.equal(read.data.state.profileSaveFailed, true);
+    assert.equal((await s.request('stop')).ok, true);
+  } finally { await s.device.disconnect(); }
 });

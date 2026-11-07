@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include "config_json.h"
 #include "log_store.h"
+#include "hardware_profile.h"
 
 namespace sentinel {
 struct DiskHeader {
@@ -28,6 +29,15 @@ class StorageWorker {
       JsonDocument d; const char* error=""; Config parsed{};
       if(!deserializeJson(d,saved) && parseConfig(d.as<JsonVariantConst>(),Config{},parsed,error)) config=parsed;
       else { settingsCorrupt=true; return false; }
+      if(hardware::migrateStoredConfig(config)) {
+        settingsMigrated=true;
+        JsonDocument migrated; configJson(migrated.to<JsonObject>(),config);
+        String text; serializeJson(migrated,text);
+        profileSaveFailed=prefs_.putString("config",text)!=text.length();
+        if(!profileSaveFailed) profileSaveFailed=prefs_.getString("config","")!=text;
+        // Still use the explicit HC-SR505 profile this boot if NVS persistence
+        // fails. Report the failure; do not activate UART or invent detection.
+      }
     }
     return true;
   }
@@ -70,7 +80,7 @@ class StorageWorker {
   }
   bool enqueue(const StorageJob& job) { return jobs && xQueueSend(jobs,&job,0)==pdTRUE; }
   QueueHandle_t jobs=nullptr, results=nullptr;
-  bool settingsCorrupt=false;
+  bool settingsCorrupt=false, settingsMigrated=false, profileSaveFailed=false;
  private:
   static void task(void* ptr) { static_cast<StorageWorker*>(ptr)->run(); }
   void run() {

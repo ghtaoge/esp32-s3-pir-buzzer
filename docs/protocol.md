@@ -1,4 +1,9 @@
-# Sentinel protocol v1
+# HC-SR505 Sentinel protocol v1
+
+Firmware 1.0.2+ targets the three-pin HC-SR505 PIR module. A snapshot declares
+`hardware:{sensorModel:"HC-SR505",pirPin:13,buzzerPin:7,radarSupported:false}`.
+Both clients verify this profile before enabling hardware controls. Older
+firmware without it must be updated rather than displaying an assumed pinout.
 
 The USB CDC serial and BLE transports carry the same UTF-8 NDJSON messages.
 Each message ends with LF. CR before LF is ignored. A frame is at most 2048
@@ -53,7 +58,7 @@ off an existing output. Normal motion remains recorded while muted/disarmed.
 Snapshot:
 
 ```
-{deviceId,version,bootId,config,state,logs:{oldest,latest,count,capacity}}
+{deviceId,version,bootId,hardware,config,state,logs:{oldest,latest,count,capacity}}
 ```
 
 The version starts with `1.`. `deviceId` is a stable chip identifier. Capacity
@@ -64,7 +69,7 @@ never manual tests or individual radar data frames.
 
 | field | default | accepted values |
 | --- | --- | --- |
-| sensor | "pir" | "pir", "radar" |
+| sensor | "pir" | "pir" only in this HC-SR505 profile |
 | armed | true | boolean |
 | muted | false | boolean |
 | beepMs | 3000 | integer 100..10000 |
@@ -76,22 +81,21 @@ never manual tests or individual radar data frames.
 | activeLow | false | boolean; invert active-module enable, not passive PWM |
 | toneHz | 2000 | integer 200..5000; passive mode only |
 | sound | "single" | "single", "double", "chime", "siren" |
-| radarMaxGate | 4 | integer 2..8; 0.75 m gates (3 m default) |
-| radarMotionThreshold | 35 | integer 0..100 |
-| radarStillThreshold | 45 | integer 0..100 |
+| radarMaxGate | 4 | legacy readback field; set is rejected |
+| radarMotionThreshold | 35 | legacy readback field; set is rejected |
+| radarStillThreshold | 45 | legacy readback field; set is rejected |
 
 Reject unknown keys, wrong JSON types, fractions and out-of-range values;
-configuration changes are atomic. PIR input uses GPIO13, with GPIO7 driving
-the non-inverted passive buzzer by default. Radar uses UART1:
-GPIO18 RX <- radar TX, GPIO17 TX -> radar RX, 256000 8N1. Module power is 5 V;
-UART logic is 3.3 V. Configure gate resolution to 0.75 m or verify compatibility
-before applying gates. Real module/firmware support is checked, not assumed.
+configuration changes are atomic. PIR OUT uses GPIO13, with GPIO7 driving
+the non-inverted passive buzzer by default. HC-SR505 VCC connects to 5 V and
+GND to common ground. This profile never starts radar UART or claims GPIO17/18.
 
-PIR has no software-adjustable sensor sensitivity or distance. Clients disable
-radar-only fields in PIR mode and explain the module's fixed hold time. Radar
-configuration errors must be returned, not shown as success. Threshold values
-are energy cutoffs: *lower* means more sensitive. These initial defaults need
-onsite tuning; they are not calibrated performance guarantees.
+HC-SR505 has no software-adjustable hardware sensitivity, distance, or output
+hold time. Clients do not expose radar controls. Requests selecting radar or
+writing radar-only fields are rejected. Legacy persisted radar mode is explicitly
+migrated to PIR while retaining buzzer/timing settings; state.settingsMigrated
+reports this migration and state.profileSaveFailed reports a persistence failure.
+Legacy configuration/parser fields remain solely for reading prior settings.
 
 ### Sound patterns
 
@@ -106,15 +110,16 @@ window; optional outputOn reports the instantaneous waveform gate.
 
 ## Motion and timing
 
-Use radar UART moving-target data, NOT the presence OUT signal, for a new
-motion episode. Static presence is shown separately. Confirm activity for
+Read the HC-SR505 OUT signal as a digital input, with HIGH indicating the
+module's active output. It cannot resolve new movements while held HIGH,
+classify static presence, or measure distance. Confirm HIGH for
 confirmMs, accept one episode, and beep for the duration snapshotted at that
 episode. Further activity is merged, never queues another beep or extends it.
 After output ends, wait cooldownMs and a continuous releaseMs quiet period
 before accepting a *new* confirmed rise. Held activity cannot retrigger on
 expiry. All elapsed timers handle uint32 millis rollover. No unbounded loops,
 blocking delay, filesystem writes, or radar configuration waits in BLE callbacks.
-Radar data becomes stale after 2 s; never re-use stale motion as a new event.
+No UART sensor is required or polled by this hardware profile.
 
 State includes:
 

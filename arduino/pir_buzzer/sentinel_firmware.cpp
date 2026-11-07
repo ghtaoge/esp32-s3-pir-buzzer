@@ -11,10 +11,12 @@
 #include "radar_config.h"
 #include "storage_worker.h"
 #include "buzzer_pattern.h"
+#include "hardware_profile.h"
 
 using namespace sentinel;
 namespace {
-constexpr uint8_t PirPin=13, BuzzerPin=7, RadarRx=18, RadarTx=17;
+constexpr uint8_t PirPin=hardware::PirPin, BuzzerPin=hardware::BuzzerPin;
+constexpr uint8_t RadarRx=18, RadarTx=17; // Historical optional-radar code only.
 constexpr char ServiceUuid[]="7b6a0001-6c2d-4b7e-9f10-15a2b3c4d5e6";
 constexpr char RxUuid[]="7b6a0002-6c2d-4b7e-9f10-15a2b3c4d5e6";
 constexpr char TxUuid[]="7b6a0003-6c2d-4b7e-9f10-15a2b3c4d5e6";
@@ -73,8 +75,18 @@ LineFramer<> usbFramer,bleFramer;
 struct BlePacket { uint32_t epoch=0,generation=0; uint8_t length=0,bytes[20]{}; };
 QueueHandle_t bleRxQueue=nullptr;
 
-bool online(uint32_t now) { return !configInFlight && (!config.radar || (radarConfig.ready && !radarConfig.busy && radarFresh && static_cast<uint32_t>(now-radarAt)<2000)); }
-bool motion(uint32_t now) { return config.radar?(online(now) && radarSample.motion):(digitalRead(PirPin)==HIGH); }
+bool online(uint32_t now) {
+  if constexpr(!hardware::RadarSupported) return !configInFlight;
+  return !configInFlight && (!config.radar || (radarConfig.ready && !radarConfig.busy && radarFresh && static_cast<uint32_t>(now-radarAt)<2000));
+}
+bool motion(uint32_t now) {
+  if constexpr(!hardware::RadarSupported) return digitalRead(PirPin)==HIGH;
+  return config.radar?(online(now) && radarSample.motion):(digitalRead(PirPin)==HIGH);
+}
+bool startRadarConfig(const Config& target,uint32_t now) {
+  if constexpr(hardware::RadarSupported) return radarConfig.start(target,now);
+  return false;
+}
 void output(bool on,uint32_t hz=0) {
   if(!hz) hz=config.toneHz;
   if(on==actualSound && (config.active || !on || actualHz==hz)) return;
@@ -125,9 +137,12 @@ void stateJson(JsonObject out) {
   out["storageReady"]=storageReady; out["storageErrors"]=storageErrors; out["outputReady"]=outputReady;
   out["radarReady"]=radarConfig.ready; out["radarError"]=radarConfig.error;
   out["radarFrameErrors"]=radarParser.errors; out["settingsCorrupt"]=storage.settingsCorrupt;
+  out["settingsMigrated"]=storage.settingsMigrated; out["profileSaveFailed"]=storage.profileSaveFailed;
 }
 void snapshot(JsonObject out) {
-  out["deviceId"]=deviceId; out["version"]="1.0.1"; out["bootId"]=bootId;
+  out["deviceId"]=deviceId; out["version"]="1.0.2"; out["bootId"]=bootId;
+  JsonObject profile=out["hardware"].to<JsonObject>(); profile["sensorModel"]=hardware::SensorModel;
+  profile["pirPin"]=hardware::PirPin; profile["buzzerPin"]=hardware::BuzzerPin; profile["radarSupported"]=hardware::RadarSupported;
   configJson(out["config"].to<JsonObject>(),config); stateJson(out["state"].to<JsonObject>());
   JsonObject meta=out["logs"].to<JsonObject>(); meta["oldest"]=logs.oldest; meta["latest"]=logs.latest;
   meta["count"]=logs.count; meta["capacity"]=LogCapacity;
@@ -185,6 +200,7 @@ void commitConfig() {
     return;
   }
   storage.settingsCorrupt=false;
+  storage.profileSaveFailed=false;
   if(changedSensor) haveRadar=radarFresh=false;
   pendingReply(true);
 }
@@ -212,12 +228,13 @@ void handleStorage() {
         }
       }
     } else if(pending.stage==PendingStage::RollbackSave) {
-      if(pending.radarChanged && config.radar && radarConfig.start(config,millis())) pending.stage=PendingStage::RollbackRadar;
+      if(pending.radarChanged && config.radar && startRadarConfig(config,millis())) pending.stage=PendingStage::RollbackRadar;
       else { if(pending.radarChanged) radarConfig.ready=false; pendingReply(false,r.ok?"settings write failed; old settings restored":"settings write and rollback failed"); }
     }
   }
 }
 void handleRadar() {
+  if constexpr(!hardware::RadarSupported) return;
   for(unsigned n=0;n<256 && radarUart.available();++n) {
     const auto kind=radarParser.feed(static_cast<uint8_t>(radarUart.read()));
     if(kind==RadarParser::Kind::Ack) radarConfig.ack(radarParser.body,radarParser.length);
@@ -242,7 +259,7 @@ void handleRadar() {
     if(!radarConfig.success) pendingReply(false,radarConfig.error);
     else if(!queueSettings(pending.next,PendingStage::Save)) {
       radarConfig.ready=false;
-      if(config.radar && radarConfig.start(config,millis())) pending.stage=PendingStage::RollbackRadar;
+      if(config.radar && startRadarConfig(config,millis())) pending.stage=PendingStage::RollbackRadar;
       else pendingReply(false,"storage queue full; radar disabled until settings reapplied");
     }
   } else if(pending.stage==PendingStage::RollbackRadar) {
@@ -290,6 +307,18 @@ void handleCommand(Link& link,const char* text,size_t length,uint32_t ownerEpoch
     if(!parseConfig(d["config"],config,candidate,problem)) {
       if(link.replies.count()<3) error(link,id,"invalid_config",problem,ownerEpoch,session); else ++queueDrops;
       return;
+    }
+    if(const char* code=hardware::configurationError(candidate)) {
+      if(link.replies.count()<3) error(link,id,code,"HC-SR505 firmware supports PIR only",ownerEpoch,session);
+      else ++queueDrops;
+      return;
+    }
+    for(JsonPairConst pair:d["config"].as<JsonObjectConst>()) {
+      if(const char* code=hardware::patchFieldError(pair.key().c_str())) {
+        if(link.replies.count()<3) error(link,id,code,"HC-SR505 has no radar sensitivity or distance settings",ownerEpoch,session);
+        else ++queueDrops;
+        return;
+      }
     }
     // Also honor a valid mute/disarm immediately when storage is unhealthy or
     // another transaction is busy. Its ERROR still means config was not saved.
@@ -348,7 +377,7 @@ void handleCommand(Link& link,const char* text,size_t length,uint32_t ownerEpoch
     if(session) memcpy(pending.session,session,17);
     pending.radarChanged=candidate.radar && (!sameRadar(candidate,config) || !radarConfig.ready);
     if(pending.radarChanged) {
-      if(radarConfig.start(candidate,millis())) pending.stage=PendingStage::Radar;
+      if(startRadarConfig(candidate,millis())) pending.stage=PendingStage::Radar;
       else pendingReply(false,"radar busy");
     } else if(!queueSettings(candidate,PendingStage::Save)) pendingReply(false,"storage queue full");
     return;
@@ -464,17 +493,20 @@ void setup() {
   bootNumber=esp_random(); snprintf(bootId,sizeof(bootId),"%08lX",static_cast<unsigned long>(bootNumber));
   snprintf(deviceName,sizeof(deviceName),"S3-Sentinel-%s",deviceId+6);
   const bool settingsOk=storage.loadSettings(config);
+  if(storage.profileSaveFailed) ++storageErrors;
   if(settingsOk) configureOutput(); // Apply saved inactive polarity before log scan.
   storageReady=storage.begin(config,logs); lastIssued=logs.latest;
   detector.begin(millis(),config);
-  radarUart.setRxBufferSize(2048); radarUart.begin(256000,SERIAL_8N1,RadarRx,RadarTx);
-  if(config.radar) radarConfig.start(config,millis());
+  if constexpr(hardware::RadarSupported) {
+    radarUart.setRxBufferSize(2048); radarUart.begin(256000,SERIAL_8N1,RadarRx,RadarTx);
+    if(config.radar) startRadarConfig(config,millis());
+  }
   startBle();
 }
 void loop() {
   static uint32_t lastLoop=micros(),stateAt=0;
   const uint32_t started=micros(); const uint32_t interval=started-lastLoop; lastLoop=started; if(interval>loopMaxUs) loopMaxUs=interval;
-  handleRadar();
+  if constexpr(hardware::RadarSupported) handleRadar();
   const uint32_t now=millis(); if(detector.tick(now,motion(now),online(now))) recordEvent(false);
   driveOutput(); receive(); handleStorage(); handlePendingReply(); driveOutput();
   if(static_cast<uint32_t>(now-stateAt)>=200) {

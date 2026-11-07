@@ -52,15 +52,17 @@ test('uncalibrated log time remains boot-relative and manual tests are distingui
   assert.equal(testLog.label, '手动测试'); assert.match(testLog.detail, /不计入/);
 });
 
-test('strict form rejects fractions and out-of-range values, omits unavailable radar fields', () => {
+test('HC form rejects fractions, out-of-range values and other sensors, never submits legacy radar fields', () => {
   const current = {...protocol.DEFAULT_CONFIG}, draft = toDraft(current);
+  assert.equal(draft.sensor, 'pir'); assert.equal('radarMaxGate' in draft, false);
+  assert.equal(toDraft({ ...current, sensor: 'radar' }).sensor, 'pir');
   draft.beepMs = '100.5'; assert.throws(() => makePatch(draft, current), /整数/);
   draft.beepMs = '99'; assert.throws(() => makePatch(draft, current));
   draft.beepMs = '3000'; draft.radarMotionThreshold = 'not applicable';
   assert.deepEqual(makePatch(draft, current), {});
-  draft.sensor = 'radar'; assert.throws(() => makePatch(draft, current), /整数/);
-  draft.radarMotionThreshold = '25'; draft.radarStillThreshold = '40';
-  assert.deepEqual(makePatch(draft, current), { sensor: 'radar', radarMotionThreshold: 25, radarStillThreshold: 40 });
+  for (const sensor of ['radar', 'other', '', null, true]) { draft.sensor = sensor; assert.throws(() => makePatch(draft, current), /HC-SR505/); }
+  draft.sensor = 'pir'; draft.beepMs = '4000'; draft.radarMaxGate = '8'; draft.radarMotionThreshold = '25'; draft.radarStillThreshold = '40';
+  assert.deepEqual(makePatch(draft, current), { beepMs: 4000 });
 });
 
 test('sound presets preserve defaults and strictly validate enum before creating a diff patch', () => {

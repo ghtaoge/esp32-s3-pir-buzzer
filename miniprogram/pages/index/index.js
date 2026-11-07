@@ -3,8 +3,7 @@ const protocol = require('../../utils/protocol');
 const { LogCache, displayEntry, MAX_VISIBLE } = require('../../utils/cache');
 const { toDraft, makePatch, NUMERIC_FIELDS, SOUND_VALUES } = require('../../utils/form');
 
-const PHASES = { warmup: '启动稳定中', ready: '等待新活动', sounding: '正在鸣叫', cooldown: '冷却中', waiting_release: '等待活动结束', sensor_offline: '雷达未连接或数据过期' };
-const SENSOR_OPTIONS = ['HC-SR505 红外模块', 'LD2410C 雷达模块'];
+const PHASES = { warmup: '模块启动稳定中', ready: '等待新触发', sounding: '正在鸣叫', cooldown: '冷却中', waiting_release: '等待检测信号释放', sensor_offline: '传感器未就绪' };
 const BUZZER_OPTIONS = ['无源模块（PWM）', '有源模块（开关）'];
 const SOUND_OPTIONS = ['单音', '双响', '叮咚', '警报'];
 const soundIndex = sound => Math.max(0, SOUND_VALUES.indexOf(sound));
@@ -14,13 +13,13 @@ const page = {
     tab: 'device', devices: [], scanning: false, scanHint: '打开蓝牙，在设备附近搜索', seenCount: 0,
     connecting: false, connected: false, connectedName: '', stableDeviceId: '', version: '',
     error: '', actionBusy: false, stopping: false, syncing: false, syncHint: '', cacheWarning: '',
-    phaseLabel: '未连接设备', phase: 'disconnected', motionLabel: '—', presenceLabel: '—', sounding: false,
-    armed: false, muted: false, triggerCount: 0, distanceLabel: '—', energyLabel: '—', timeKnown: false,
+    phaseLabel: '未连接设备', phase: 'disconnected', motionLabel: '—', sounding: false,
+    armed: false, muted: false, triggerCount: 0, timeKnown: false,
     config: Object.assign({}, protocol.DEFAULT_CONFIG), draft: toDraft(protocol.DEFAULT_CONFIG), dirty: false,
-    sensorOptions: SENSOR_OPTIONS, sensorIndex: 0, buzzerOptions: BUZZER_OPTIONS, buzzerIndex: 0,
+    buzzerOptions: BUZZER_OPTIONS, buzzerIndex: 0,
     soundOptions: SOUND_OPTIONS, soundIndex: 0, savedSoundLabel: SOUND_OPTIONS[0],
     advanced: false, logs: [], visibleLimit: 25, cachedCount: 0, canShowMore: false, cacheDeviceLabel: '', gapWarning: '',
-    diagnostics: '', storageWarning: ''
+    diagnostics: '', storageWarning: '', profileSaveFailed: false, profileWarning: '', profileNotice: ''
   },
   onLoad() {
     this._alive = true; this._visible = true; this._syncToken = 0; this._pendingActions = 0;
@@ -93,13 +92,13 @@ const page = {
     if (!state || !this._alive || !this._visible || !this.data.connected) return;
     this._set({
       phase: state.phase, phaseLabel: PHASES[state.phase] || state.phase || '状态未知',
-      sounding: state.sounding === true, motionLabel: state.motion ? '检测到活动' : '暂无新活动',
-      presenceLabel: this.data.config.sensor === 'radar' ? state.present ? '有人体存在' : '暂无人体存在' : 'PIR 不判断静止存在',
+      sounding: state.sounding === true, motionLabel: state.motion ? '检测信号 OUT 高' : '检测信号 OUT 低',
       triggerCount: state.triggerCount || 0, timeKnown: state.timeKnown === true,
-      distanceLabel: this.data.config.sensor === 'radar' && Number.isFinite(state.distanceCm) ? `${state.distanceCm} cm（参考）` : '—',
-      energyLabel: this.data.config.sensor === 'radar' && Number.isFinite(state.motionEnergy) ? `${state.motionEnergy} / 100` : '—',
       diagnostics: `运行 ${Math.floor((state.uptimeMs || 0) / 1000)} 秒 · 丢弃事件 ${state.queueDrops || 0} · 丢弃发送 ${state.txDrops || 0}`,
-      storageWarning: state.storageReady === false || state.storageErrors > 0 ? `设备存储异常（错误计数 ${state.storageErrors || 0}），新记录可能尚未掉电保存。请同步到手机备份并检查设备存储。` : ''
+      storageWarning: state.storageReady === false || state.storageErrors > 0 ? `设备存储异常（错误计数 ${state.storageErrors || 0}），新记录可能尚未掉电保存。请同步到手机备份并检查设备存储。` : '',
+      profileSaveFailed: state.profileSaveFailed === true,
+      profileWarning: state.profileSaveFailed === true ? 'HC-SR505 专用配置迁移未能保存。当前运行设置不代表已掉电保存，请检查存储并重新保存参数。' : '',
+      profileNotice: state.settingsMigrated === true ? '旧版设置已迁移为 HC-SR505 专用配置。请核对蜂鸣器模式、触发极性和声音预设。' : ''
     });
   },
   _snapshot(snapshot, replaceDraft = false) {
@@ -107,7 +106,7 @@ const page = {
     const config = Object.assign({}, snapshot.config);
     const changes = { config, armed: config.armed === true, muted: config.muted === true, stableDeviceId: snapshot.deviceId,
       version: snapshot.version, savedSoundLabel: SOUND_OPTIONS[soundIndex(config.sound)], error: '' };
-    if (replaceDraft || !this.data.dirty) Object.assign(changes, { draft: toDraft(config), dirty: false, sensorIndex: config.sensor === 'radar' ? 1 : 0, buzzerIndex: config.buzzerMode === 'active' ? 1 : 0, soundIndex: soundIndex(config.sound) });
+    if (replaceDraft || !this.data.dirty) Object.assign(changes, { draft: toDraft(config), dirty: false, buzzerIndex: config.buzzerMode === 'active' ? 1 : 0, soundIndex: soundIndex(config.sound) });
     this._set(changes);
     this._latestState = snapshot.state; this._renderState();
   },
@@ -144,6 +143,7 @@ const page = {
       const snapshot = await this.client.request(op, fields);
       if (!this._alive) return null;
       this._snapshot(snapshot, op === 'set' && fields.config && (Object.keys(fields.config).some(key => key !== 'armed' && key !== 'muted')));
+      if (op === 'set' && snapshot.state.profileSaveFailed === true) throw new Error('设备仍报告 HC-SR505 专用配置保存失败，请检查设备存储后重试');
       if (successText) wx.showToast({ title: successText, icon: 'success' });
       return snapshot;
     } catch (error) { this._error(error); return null; }
@@ -171,11 +171,6 @@ const page = {
     if (!NUMERIC_FIELDS.includes(field)) return;
     this._set({ ['draft.' + field]: event.detail.value, dirty: true });
   },
-  sensorChange(event) {
-    const index = Number(event.detail.value);
-    if (![0, 1].includes(index)) return;
-    this._set({ sensorIndex: index, 'draft.sensor': index ? 'radar' : 'pir', dirty: true });
-  },
   buzzerChange(event) {
     const index = Number(event.detail.value);
     if (![0, 1].includes(index)) return;
@@ -190,13 +185,14 @@ const page = {
   toggleAdvanced() { this._set({ advanced: !this.data.advanced }); },
   discardDraft() {
     const config = this.data.config;
-    this._set({ draft: toDraft(config), dirty: false, sensorIndex: config.sensor === 'radar' ? 1 : 0, buzzerIndex: config.buzzerMode === 'active' ? 1 : 0, soundIndex: soundIndex(config.sound) });
+    this._set({ draft: toDraft(config), dirty: false, buzzerIndex: config.buzzerMode === 'active' ? 1 : 0, soundIndex: soundIndex(config.sound) });
   },
   async save() {
     if (!this.data.connected || this.data.actionBusy) return;
     let patch;
     try { patch = makePatch(this.data.draft, this.data.config); }
     catch (error) { this._error(error); return; }
+    if (!Object.keys(patch).length && this.data.profileSaveFailed) patch = { sensor: 'pir' };
     if (!Object.keys(patch).length) { wx.showToast({ title: '参数没有变化', icon: 'none' }); return; }
     await this._run('set', { config: patch }, '设备已确认并保存');
   },
