@@ -8,7 +8,6 @@
   let session = null, snapshot = null, logs = null, tab = 'device', page = 0, formBaseline = {};
   let frame = 0, logsDirty = true, busy = false, syncing = false, disconnecting = false, saveTimer = null;
   const names = { warmup: '传感器稳定中', ready: '等待新活动', sounding: '正在鸣叫', cooldown: '冷却中', waiting_release: '等待活动平静', sensor_offline: '传感器未就绪' };
-  const resultNames = { sounded: '已启动鸣叫', muted: '静音，仅记录', disarmed: '未布防，仅记录' };
   function message(text, error = false) { $('notice').textContent = text; $('notice').classList.toggle('error', error); }
   function errorText(error) {
     if (error && error.name === 'NotFoundError') return '未选择设备，连接已取消。';
@@ -33,7 +32,8 @@
     for (const input of form.querySelectorAll('input, select')) input.disabled = !canSave || busy;
     fields.namedItem('sensor').value = 'pir'; fields.namedItem('sensor').disabled = true;
     fields.namedItem('toneHz').disabled = !canSave || busy || active;
-    fields.namedItem('activeLow').disabled = !canSave || busy || !active;
+    fields.namedItem('activeLow').disabled = !canSave || busy;
+    $('polarity-hint').textContent = !active && connected && !C.supportsPassivePolarity(snapshot.version) ? '无源低电平驱动需升级到固件 1.0.3 或更新版本。请按模块资料确认驱动极性。' : '适用于带驱动的有源或无源模块。默认关闭；仅按模块资料选择，开启后空闲为高电平。';
     $('sound-hint').textContent = active ? '有源蜂鸣器只改变通断节奏，音高固定；“叮咚”和“警报”也以节奏呈现。' : '无源蜂鸣器可改变节奏和音高，基础音高由下方音调设置决定。';
     $('save-settings').disabled = !canSave || busy;
   }
@@ -127,7 +127,7 @@
     const rows = document.createDocumentFragment();
     for (const entry of entries.slice(page * 50, page * 50 + 50)) {
       const row = document.createElement('tr');
-      const values = [entry.seq, C.displayTime(entry), entry.type === 'test' ? '手动测试' : '活动触发', resultNames[entry.result] || entry.result, entry.bootId || '—'];
+      const values = [entry.seq, C.displayTime(entry), entry.type === 'test' ? '手动测试' : '活动触发', C.resultLabel(entry.result), entry.bootId || '—'];
       for (const value of values) { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); }
       rows.append(row);
     }
@@ -154,7 +154,7 @@
     $('device-detail').textContent = connected ? `固件 ${snapshot.version} · ${session.transport.kind} · HC-SR505：VCC → 5V / GND → GND / OUT → GPIO13 · 蜂鸣器 GPIO7` : 'HC-SR505（三脚PIR）· OUT 接 GPIO13，蜂鸣器控制接 GPIO7；支持 USB 串口或 BLE。';
     $('sensor-label').textContent = 'HC-SR505（三脚PIR）';
     $('phase').textContent = connected ? names[state.phase] || state.phase : '等待连接';
-    $('presence').textContent = connected ? state.motion ? '模块 OUT 为高电平（包含模块保持时间）' : '模块 OUT 为低电平' : '连接后查看 HC-SR505 的 OUT 信号与蜂鸣器状态';
+    $('presence').textContent = connected ? state.motion ? state.phase === 'waiting_release' ? 'OUT 仍为高电平，须恢复低电平后才能接受下一轮触发' : '模块 OUT 为高电平（包含模块保持时间）' : '模块 OUT 为低电平' : '连接后查看 HC-SR505 的 OUT 信号与蜂鸣器状态';
     $('motion-label').textContent = 'OUT ' + (connected ? state.motion ? 'HIGH' : 'LOW' : '—');
     $('sound-label').textContent = '蜂鸣器 ' + (connected ? state.sounding ? '正在输出' : '关闭' : '—');
     $('time-label').textContent = connected ? state.timeKnown ? '已校时' : '未校时' : '时间 —';
@@ -212,7 +212,7 @@
         const value = typeof previous === 'boolean' ? input.checked : typeof previous === 'number' ? Number(input.value) * (seconds.has(name) ? 1000 : 1) : input.value;
         if (value !== previous) config[name] = value;
       }
-      P.validateConfig(config, snapshot.config);
+      C.assertBuzzerConfigSupported(snapshot.version, P.validateConfig(config, snapshot.config));
     } catch (error) { message(errorText(error), true); return; }
     if (!Object.keys(config).length) { message('参数没有变化，无需保存。'); return; }
     act(async () => {

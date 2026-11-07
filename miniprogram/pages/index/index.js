@@ -190,7 +190,7 @@ const page = {
   async save() {
     if (!this.data.connected || this.data.actionBusy) return;
     let patch;
-    try { patch = makePatch(this.data.draft, this.data.config); }
+    try { patch = makePatch(this.data.draft, this.data.config, this.data.version); }
     catch (error) { this._error(error); return; }
     if (!Object.keys(patch).length && this.data.profileSaveFailed) patch = { sensor: 'pir' };
     if (!Object.keys(patch).length) { wx.showToast({ title: '参数没有变化', icon: 'none' }); return; }

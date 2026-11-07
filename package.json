@@ -1,6 +1,6 @@
 {
   "name": "esp32-s3-pir-buzzer",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "HC-SR505 three-pin PIR sentinel with ESP32-S3, PC and WeChat clients",
   "scripts": {

@@ -19,7 +19,13 @@ const LABELS = {
   beepMs: '响铃时长', cooldownMs: '冷却时间', confirmMs: '活动确认时间', releaseMs: '连续安静时间',
   warmupMs: 'PIR启动稳定时间', toneHz: '无源蜂鸣器频率'
 };
-function makePatch(draft, current) {
+function supportsPassivePolarity(version) {
+  const parts = typeof version === 'string' && /^(\d+)\.(\d+)\.(\d+)(?:-demo)?$/.exec(version);
+  if (!parts) return false;
+  const [major, minor, patch] = parts.slice(1).map(Number);
+  return major > 1 || (major === 1 && (minor > 0 || patch >= 3));
+}
+function makePatch(draft, current, version) {
   if (draft.sensor !== 'pir') throw new Error('当前硬件固定为 HC-SR505，不能选择其他传感器模式');
   if (!['active', 'passive'].includes(draft.buzzerMode)) throw new Error('请选择有效蜂鸣器模式');
   if (!SOUND_VALUES.includes(draft.sound)) throw new Error('请选择有效声音预设');
@@ -28,11 +34,12 @@ function makePatch(draft, current) {
     if (field === 'toneHz' && draft.buzzerMode !== 'passive') return;
     candidate[field] = parseInteger(draft[field], LABELS[field]);
   });
-  if (draft.buzzerMode === 'active') {
-    if (typeof draft.activeLow !== 'boolean') throw new Error('蜂鸣器触发极性无效');
-    candidate.activeLow = draft.activeLow;
-  }
+  if (typeof draft.activeLow !== 'boolean') throw new Error('蜂鸣器触发极性无效');
+  candidate.activeLow = draft.activeLow;
   protocol.validateConfig(candidate, current);
+  if (candidate.buzzerMode === 'passive' && candidate.activeLow && !supportsPassivePolarity(version)) {
+    throw new Error('无源模块低电平驱动需要固件 1.0.3 或更新版本，请先升级固件');
+  }
   const patch = {};
   Object.keys(candidate).forEach(key => { if (candidate[key] !== current[key]) patch[key] = candidate[key]; });
   return patch;

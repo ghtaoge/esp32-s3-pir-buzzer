@@ -71,8 +71,8 @@
               <label>声音预设<select name="sound"><option value="single">单音</option><option value="double">双响</option><option value="chime">叮咚</option><option value="siren">警报</option></select></label>
               <p id="sound-hint" class="hint">无源蜂鸣器可改变节奏和音高，基础音高由下方音调设置决定。</p>
               <label>无源音调（Hz）<input name="toneHz" type="number" min="200" max="5000" step="1" required></label>
-              <label class="check-row"><input name="activeLow" type="checkbox">有源模块低电平触发</label>
-              <p class="inline-note">默认保留原项目的无源、非反相驱动。仅标有 VCC / GND / S，并不能确定模块是有源还是无源。</p>
+              <label class="check-row"><input name="activeLow" type="checkbox">低电平驱动（空闲高电平）</label>
+              <p id="polarity-hint" class="inline-note">适用于带驱动的有源或无源模块。默认关闭；仅按模块资料选择，开启后空闲为高电平。</p>
             </section>
           </div>
           <div class="save-bar"><span id="settings-feedback">连接设备后读取实际参数。</span><button id="save-settings" class="primary" type="submit" disabled>保存到设备</button></div>

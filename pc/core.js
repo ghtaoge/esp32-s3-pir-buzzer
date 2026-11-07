@@ -5,9 +5,22 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   const MAX_LOGS = 1000;
+  const RESULT_LABELS = { sounded: '已启动鸣叫', muted: '静音，仅记录', disarmed: '未布防，仅记录', output_failed: '蜂鸣器输出失败' };
+  function supportsPassivePolarity(version) {
+    const parts = typeof version === 'string' && /^(\d+)\.(\d+)\.(\d+)(?:-demo)?$/.exec(version);
+    if (!parts) return false;
+    const [major, minor, patch] = parts.slice(1).map(Number);
+    return major > 1 || (major === 1 && (minor > 0 || patch >= 3));
+  }
+  function assertBuzzerConfigSupported(version, config) {
+    if (config.buzzerMode === 'passive' && config.activeLow === true && !supportsPassivePolarity(version)) {
+      throw new Error('无源模块低电平驱动需要固件 1.0.3 或更新版本，请先升级固件。');
+    }
+  }
+  function resultLabel(result) { return typeof result === 'string' && Object.prototype.hasOwnProperty.call(RESULT_LABELS, result) ? RESULT_LABELS[result] : result; }
   function validEntry(entry) {
     return entry && Number.isSafeInteger(entry.seq) && entry.seq > 0 &&
-      ['motion', 'test'].includes(entry.type) && ['sounded', 'muted', 'disarmed'].includes(entry.result) &&
+      ['motion', 'test'].includes(entry.type) && typeof entry.result === 'string' && Object.prototype.hasOwnProperty.call(RESULT_LABELS, entry.result) &&
       Number.isFinite(entry.uptimeMs) && entry.uptimeMs >= 0 && Number.isFinite(entry.epochMs) && entry.epochMs >= 0;
   }
   class LogStore {
@@ -81,5 +94,5 @@
     for (const entry of entries) rows.push([entry.seq, displayTime(entry), entry.type, entry.result, entry.bootId]);
     return '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n');
   }
-  return { MAX_LOGS, LogStore, validEntry, displayTime, csvCell, toCsv };
+  return { MAX_LOGS, LogStore, validEntry, displayTime, csvCell, toCsv, resultLabel, supportsPassivePolarity, assertBuzzerConfigSupported };
 });

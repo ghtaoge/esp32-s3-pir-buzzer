@@ -39,6 +39,7 @@
         <text class="status-kicker">HC-SR505（三脚 PIR）</text>
         <view class="status-title">{{phaseLabel}}</view>
         <view class="status-detail">{{motionLabel}}</view>
+        <view wx:if="{{phase === 'waiting_release'}}" class="caption">需先等待 OUT 恢复并稳定为低电平，再走动触发。</view>
         <view class="trigger-summary">本次启动活动 <text>{{triggerCount}}</text> 次</view>
       </view>
       <view class="panel toggles">
@@ -62,7 +63,7 @@
       <view class="field"><text class="field-label">固定传感器</text><view>HC-SR505（三脚 PIR）</view><view class="caption">VCC → 5V · GND → GND · OUT → GPIO13</view></view>
       <view class="field"><text class="field-label">蜂鸣器</text><picker mode="selector" range="{{buzzerOptions}}" value="{{buzzerIndex}}" disabled="{{!connected || actionBusy}}" bindchange="buzzerChange"><view class="picker-value">{{buzzerOptions[buzzerIndex]}} <text>⌄</text></view></picker></view>
       <view class="caption">三脚不代表有源。请按模块资料选择 PWM 或开关模式，控制输入须兼容 3.3V。</view>
-      <view wx:if="{{draft.buzzerMode === 'active'}}" class="toggle-row"><view><view>低电平触发</view><view class="caption">仅适用于有源模块；按实物标识确认</view></view><switch color="#087f51" checked="{{draft.activeLow}}" disabled="{{!connected || actionBusy}}" bindchange="polarityChange" /></view>
+      <view class="toggle-row"><view><view>低电平驱动（空闲高电平）</view><view class="caption">有源、无源均按模块资料确认；无源需固件 1.0.3 起支持</view></view><switch color="#087f51" checked="{{draft.activeLow}}" disabled="{{!connected || actionBusy}}" bindchange="polarityChange" /></view>
       <view class="field"><text class="field-label">声音预设</text><picker mode="selector" range="{{soundOptions}}" value="{{soundIndex}}" disabled="{{!connected || actionBusy}}" bindchange="soundChange"><view class="picker-value">{{soundOptions[soundIndex]}} <text>⌄</text></view></picker></view>
       <view wx:if="{{draft.buzzerMode === 'active'}}" class="caption">有源模块只能改变开关节奏，无法变调；“警报”在有源模块上与单音相同。</view>
       <view wx:else class="caption">无源模块由设备生成预设音高与节奏；基础音高可在高级参数中设置。</view>

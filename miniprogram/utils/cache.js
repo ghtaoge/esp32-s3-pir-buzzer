@@ -4,7 +4,7 @@ const safeInteger = value => Number.isSafeInteger(value) && value >= 0;
 
 function validEntry(entry) {
   return entry && safeInteger(entry.seq) && entry.seq > 0 &&
-    ['motion', 'test'].includes(entry.type) && ['sounded', 'muted', 'disarmed'].includes(entry.result) &&
+    ['motion', 'test'].includes(entry.type) && ['sounded', 'muted', 'disarmed', 'output_failed'].includes(entry.result) &&
     typeof entry.bootId === 'string' && entry.bootId.length > 0 && entry.bootId.length <= 64 &&
     safeInteger(entry.uptimeMs) && safeInteger(entry.epochMs) &&
     safeInteger(entry.distanceCm) && entry.distanceCm <= 65535 && safeInteger(entry.energy) && entry.energy <= 100;
@@ -100,7 +100,7 @@ function timeLabel(entry) {
 function displayEntry(entry) {
   return Object.assign({}, entry, {
     label: entry.type === 'test' ? '手动测试' : '活动触发',
-    resultLabel: ({ sounded: '已启动鸣叫', muted: '静音，仅记录', disarmed: '未布防，仅记录' })[entry.result] || entry.result,
+    resultLabel: ({ sounded: '已启动鸣叫', muted: '静音，仅记录', disarmed: '未布防，仅记录', output_failed: '蜂鸣器输出失败' })[entry.result] || entry.result,
     timeLabel: timeLabel(entry),
     detail: entry.type === 'test' ? '不计入活动触发次数' : '一轮检测输出片段，不代表人数'
   });

@@ -28,6 +28,16 @@ int main() {
   r.energy=1; assert(!valid(r)); r.seq=1007; seal(r); cache.insert(r); assert(cache.count==2);
   cache.clear(1007); r.seq=1000000000002ULL; seal(r); cache.insert(r);
   assert(cache.nextAfter(1007) && cache.nextAfter(1007)->seq==r.seq && !cache.nextAfter(r.seq));
+  // Driver failures survive the same CRC/cache path as historical outcomes;
+  // unrecognized result codes remain invalid rather than looking successful.
+  for(uint8_t result=0;result<=3;++result) {
+    LogRecord outcome{}; outcome.seq=1000000000003ULL+result; outcome.result=result; seal(outcome);
+    assert(valid(outcome)); cache.insert(outcome);
+    const LogRecord* restored=cache.find(outcome.seq);
+    assert(restored && restored->result==result && valid(*restored));
+  }
+  LogRecord unknown{}; unknown.seq=1000000000010ULL; unknown.result=4; seal(unknown);
+  assert(!valid(unknown)); cache.insert(unknown); assert(!cache.find(unknown.seq));
   assert(checksum("123456789",9)==0xCBF43926u);
-  puts("PASS framing/storage cache: exact limit, discard-through-LF, poison/resync, CRC, overwrite and clear watermark");
+  puts("PASS framing/storage cache: exact limit, discard-through-LF, poison/resync, CRC, overwrite, clear watermark and failed-output records");
 }

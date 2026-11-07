@@ -23,7 +23,7 @@ function simulator() {
 test('demo uses the real wire protocol; held activity cannot repeat or extend a beep', async () => {
   const s = simulator(); await s.device.connect();
   const initial = (await s.request('get')).data;
-  assert.equal(initial.version, '1.0.2-demo');
+  assert.equal(initial.version, '1.0.3-demo');
   assert.deepEqual(initial.hardware, { sensorModel: 'HC-SR505', pirPin: 13, buzzerPin: 7, radarSupported: false });
   await s.request('set', { config: { beepMs: 300, cooldownMs: 100, confirmMs: 50, releaseMs: 50 } });
   s.device.simulateActivity(2000); s.advance(100);

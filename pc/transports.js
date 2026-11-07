@@ -114,7 +114,7 @@
     }
     async connect() { this.timer = this.setInterval(() => this.tick(), 25); return this; }
     send(value) { if (!this.closed) this.onBytes(P.encodeFrame(value)); }
-    snapshot() { return { deviceId: this.deviceId, version: '1.0.2-demo', bootId: this.bootId, hardware: { sensorModel: 'HC-SR505', pirPin: 13, buzzerPin: 7, radarSupported: false }, config: { ...this.config }, state: { ...this.state }, logs: this.logInfo() }; }
+    snapshot() { return { deviceId: this.deviceId, version: '1.0.3-demo', bootId: this.bootId, hardware: { sensorModel: 'HC-SR505', pirPin: 13, buzzerPin: 7, radarSupported: false }, config: { ...this.config }, state: { ...this.state }, logs: this.logInfo() }; }
     logInfo() { return { oldest: this.entries.length ? this.entries[0].seq : this.sequence + 1, latest: this.sequence, count: this.entries.length, capacity: 1000 }; }
     addLog(type, result) {
       const entry = { seq: ++this.sequence, bootId: this.bootId, uptimeMs: this.now() - this.bootAt, epochMs: this.timeOffset === null ? 0 : this.now() + this.timeOffset, type, result, distanceCm: this.state.distanceCm, energy: this.state.motionEnergy };

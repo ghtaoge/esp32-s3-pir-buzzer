@@ -4,6 +4,9 @@ Firmware 1.0.2+ targets the three-pin HC-SR505 PIR module. A snapshot declares
 `hardware:{sensorModel:"HC-SR505",pirPin:13,buzzerPin:7,radarSupported:false}`.
 Both clients verify this profile before enabling hardware controls. Older
 firmware without it must be updated rather than displaying an assumed pinout.
+Firmware 1.0.3 additionally applies `activeLow` to passive modules, detaches PWM
+on every transition to rest, and drives the configured static idle level.
+Clients must require 1.0.3+ when selecting low-level drive in passive mode.
 
 The USB CDC serial and BLE transports carry the same UTF-8 NDJSON messages.
 Each message ends with LF. CR before LF is ignored. A frame is at most 2048
@@ -78,7 +81,7 @@ never manual tests or repeated HIGH samples from the same held PIR output.
 | releaseMs | 500 | integer 50..5000 |
 | warmupMs | 30000 | integer 0..120000; PIR startup settling interval |
 | buzzerMode | "passive" | "passive", "active" |
-| activeLow | false | boolean; invert active-module enable, not passive PWM |
+| activeLow | false | boolean; low-level drive for both modes in 1.0.3+: HIGH idle, inverted passive PWM |
 | toneHz | 2000 | integer 200..5000; passive mode only |
 | sound | "single" | "single", "double", "chime", "siren" |
 | radarMaxGate | 4 | legacy readback field; set is rejected |
@@ -126,7 +129,8 @@ State includes:
 ```
 {motion,present,sounding,outputOn,phase,uptimeMs,triggerCount,timeKnown,
  freeHeap,minFreeHeap,loopMaxUs,queueDrops,txDrops,
- storageReady,storageErrors,settingsMigrated,profileSaveFailed,outputReady}
+ storageReady,storageErrors,settingsMigrated,profileSaveFailed,outputReady,
+ buzzerPwmAttached,buzzerIdleHigh}
 ```
 
 For HC-SR505, motion/present reflect its digital output signal; neither is a
@@ -136,6 +140,11 @@ measurements. Clients must not show distance or energy instruments.
 
 Phases: `warmup`, `ready`, `sounding`, `cooldown`, `waiting_release`,
 `sensor_offline`. Clients tolerate added state fields.
+In 1.0.3, `buzzerPwmAttached` reports the driver's PWM attachment state;
+`buzzerIdleHigh` reports the configured inactive level, not a measured voltage.
+Neither software field proves audible sound or replaces electrical measurement.
+An explicit `stop` reasserts the static idle level even if the cached sounding
+flag is already false, and returns `output_unavailable` if output cleanup fails.
 
 ## Log page and time
 
@@ -149,7 +158,12 @@ Entries are returned in ascending sequence order, strictly greater than
 empty page. `reset` reports a cursor gap (clear/overwrite), so the client can
 warn that older records are no longer available. A clear operation is explicit
 and the UI confirms it. The sequence counter survives clear and reboot.
-Log type is `motion` or `test`; result is `sounded`, `muted`, or `disarmed`.
+Log type is `motion` or `test`; result is `sounded`, `muted`, `disarmed`, or
+`output_failed` (1.0.3+). Driver initialization/tone failures return an error
+for `test` and must never be acknowledged or recorded as a successful start.
+The persistent record remains 40 bytes with the same CRC and sequence format;
+all historical outcome values are retained. Update clients to display the
+additional result before using the new firmware.
 Manual stop status is surfaced live; a logged `sounded` means sound was
 initiated, not a guarantee of audible hardware or a full-length sound.
 

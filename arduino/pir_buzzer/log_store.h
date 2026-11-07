@@ -19,7 +19,7 @@ inline uint32_t checksum(const void* ptr,size_t length) {
   return ~crc;
 }
 inline void seal(LogRecord& r) { r.crc=checksum(&r,offsetof(LogRecord,crc)); }
-inline bool valid(const LogRecord& r) { return r.seq && r.type<=1 && r.result<=2 && r.crc==checksum(&r,offsetof(LogRecord,crc)); }
+inline bool valid(const LogRecord& r) { return r.seq && r.type<=1 && r.result<=3 && r.crc==checksum(&r,offsetof(LogRecord,crc)); }
 
 // RAM mirror belongs to the detector task. Disk worker never touches this cache.
 class LogCache {

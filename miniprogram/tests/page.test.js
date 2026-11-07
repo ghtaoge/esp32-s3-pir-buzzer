@@ -49,6 +49,23 @@ test('invalid numeric draft never reaches transport; switch is confirmed rather 
   assert.equal(instance.data.armed, false);
 });
 
+test('passive low-drive saves are gated by firmware version and only update after ACK', async () => {
+  const sent = []; let resolve;
+  const { instance, toasts } = fixture((op, fields) => { sent.push({ op, fields }); return new Promise(done => { resolve = done; }); });
+  instance._snapshot(snapshot(), true);
+  instance.polarityChange({ detail: { value: true } });
+  await instance.save();
+  assert.equal(sent.length, 0); assert.equal(toasts.length, 0);
+  assert.match(instance.data.error, /1\.0\.3/); assert.equal(instance.data.config.activeLow, false);
+  instance._snapshot({ ...snapshot(), version: '1.0.3' });
+  const saving = instance.save();
+  assert.deepEqual(sent, [{ op: 'set', fields: { config: { activeLow: true } } }]);
+  assert.equal(instance.data.config.activeLow, false); assert.equal(toasts.length, 0);
+  resolve({ ...snapshot({ activeLow: true }), version: '1.0.3' }); await saving;
+  assert.equal(instance.data.config.activeLow, true); assert.equal(instance.data.dirty, false);
+  assert.deepEqual(toasts, ['设备已确认并保存']);
+});
+
 test('pagination uses confirmed cursor and cancellation cannot advance a late page', async () => {
   const afters = []; let resolveLast;
   const { instance } = fixture(async (op, args) => {

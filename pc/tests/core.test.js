@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { LogStore, displayTime, csvCell, toCsv } = require('../core');
+const { LogStore, displayTime, csvCell, toCsv, validEntry, resultLabel, assertBuzzerConfigSupported } = require('../core');
 const entry = (seq, extra = {}) => ({ seq, bootId: 'boot-1', uptimeMs: seq * 1000, epochMs: 0, type: 'motion', result: 'sounded', distanceCm: 150, energy: 60, ...extra });
 function memoryStorage() { const values = new Map(); return { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) }; }
 
@@ -27,6 +27,33 @@ test('cache is device-specific and keeps only confirmed sync cursor', () => {
   assert.deepEqual(restored.list().map(value => value.seq), [4, 2, 1]);
   assert.equal(other.entries.size, 0);
   assert.equal(other.cursor, 0);
+});
+
+test('output failures remain distinct through synchronization, persistence and display', () => {
+  const storage = memoryStorage(), store = new LogStore('failure-board', storage);
+  const failed = entry(1, { result: 'output_failed' });
+  assert.equal(validEntry(failed), true);
+  assert.equal(validEntry(entry(2, { result: 'invented' })), false);
+  assert.equal(validEntry(entry(2, { result: { toString: 1 } })), false);
+  store.applyPage({ entries: [failed], next: 1, hasMore: false }, 0);
+  store.persist();
+  const restored = new LogStore('failure-board', storage);
+  assert.equal(restored.cursor, 1);
+  assert.equal(restored.list()[0].result, 'output_failed');
+  assert.equal(resultLabel(restored.list()[0].result), '蜂鸣器输出失败');
+  assert.match(toCsv(restored.list()), /output_failed/);
+});
+
+test('legacy firmware cannot accept passive low-drive settings as an applied change', () => {
+  const passiveLow = { buzzerMode: 'passive', activeLow: true };
+  for (const version of ['1.0.2', '1.0.1', '', undefined, '1.0.3-beta', 'invalid']) {
+    assert.throws(() => assertBuzzerConfigSupported(version, passiveLow), /1\.0\.3/);
+  }
+  for (const version of ['1.0.3', '1.0.3-demo', '1.0.10', '1.1.0']) {
+    assert.doesNotThrow(() => assertBuzzerConfigSupported(version, passiveLow));
+  }
+  assert.doesNotThrow(() => assertBuzzerConfigSupported('1.0.2', { buzzerMode: 'passive', activeLow: false }));
+  assert.doesNotThrow(() => assertBuzzerConfigSupported('1.0.2', { buzzerMode: 'active', activeLow: true }));
 });
 test('clear and overwritten history remove obsolete cache without resetting sequence', () => {
   const store = new LogStore('A', memoryStorage());

@@ -5,12 +5,14 @@
 #include <atomic>
 #include <esp_timer.h>
 #include "driver/gpio.h"
+#include "esp32-hal-periman.h"
 #include "motion_alarm.h"
 #include "line_framer.h"
 #include "json_syntax.h"
 #include "radar_config.h"
 #include "storage_worker.h"
 #include "buzzer_pattern.h"
+#include "buzzer_output.h"
 #include "hardware_profile.h"
 
 using namespace sentinel;
@@ -29,10 +31,32 @@ RadarParser radarParser;
 RadarConfigEngine radarConfig;
 RadarSample radarSample;
 HardwareSerial radarUart(1);
-uint32_t bootNumber=0, radarAt=0, loopMaxUs=0, storageErrors=0, actualHz=0;
+uint32_t bootNumber=0, radarAt=0, loopMaxUs=0, storageErrors=0;
 uint64_t lastIssued=0, timeBaseEpoch=0, timeBaseUptime=0, radarUptime=0;
 bool haveRadar=false, radarFresh=false, storageReady=false, timeKnown=false, outputReady=false, configInFlight=false;
-bool pwmAttached=false, actualSound=false, usbSession=false, usbAttached=false;
+bool actualSound=false, usbSession=false, usbAttached=false;
+struct BuzzerIo {
+  bool pwmPresent() const { return perimanGetPinBusType(BuzzerPin)==ESP32_BUS_TYPE_LEDC; }
+  bool quiet() { return !pwmPresent() || ledcWrite(BuzzerPin,0); }
+  bool detach() { return !pwmPresent() || ledcDetach(BuzzerPin); }
+  bool attach(uint32_t hz) { return ledcAttach(BuzzerPin,hz,10); }
+  bool invert(bool inverted) { return ledcOutputInvert(BuzzerPin,inverted); }
+  bool tone(uint32_t hz) {
+    // ledcWriteTone in Arduino 3.3.12 does not return a failed duty update.
+    // Check the final 50% duty write as well as its frequency configuration.
+    return ledcWriteTone(BuzzerPin,hz)!=0 && ledcWrite(BuzzerPin,512);
+  }
+  bool level(bool high) {
+    const auto pin=static_cast<gpio_num_t>(BuzzerPin);
+    // Preload the latch before enabling GPIO output, including after a PWM
+    // detach. pinMode also transfers Arduino's peripheral ownership to GPIO.
+    if(gpio_set_level(pin,high)!=ESP_OK) return false;
+    pinMode(BuzzerPin,OUTPUT);
+    return perimanGetPinBusType(BuzzerPin)==ESP32_BUS_TYPE_GPIO &&
+      gpio_set_direction(pin,GPIO_MODE_OUTPUT)==ESP_OK && gpio_set_level(pin,high)==ESP_OK;
+  }
+} buzzerIo;
+BuzzerOutput<BuzzerIo> buzzerOutput(buzzerIo);
 char deviceId[13]{}, bootId[9]{}, deviceName[24]{};
 std::atomic<bool> bleConnected{false}, notifyAccepted{false};
 std::atomic<uint32_t> connectionEpoch{0}, rxGeneration{0}, callbackDrops{0};
@@ -87,40 +111,27 @@ bool startRadarConfig(const Config& target,uint32_t now) {
   if constexpr(hardware::RadarSupported) return radarConfig.start(target,now);
   return false;
 }
-void output(bool on,uint32_t hz=0) {
+bool output(bool on,uint32_t hz=0,bool force=false) {
   if(!hz) hz=config.toneHz;
-  if(on==actualSound && (config.active || !on || actualHz==hz)) return;
-  if(config.active) digitalWrite(BuzzerPin,on?!config.activeLow:config.activeLow);
-  else if(pwmAttached) {
-    if(on) { if(!ledcWriteTone(BuzzerPin,hz)) { ledcWrite(BuzzerPin,0); outputReady=false; on=false; } }
-    else ledcWrite(BuzzerPin,0);
-  } else on=false;
-  actualSound=on; actualHz=on?hz:0;
+  const bool ok=buzzerOutput.write(on,hz,force);
+  actualSound=buzzerOutput.sounding(); outputReady=buzzerOutput.ready();
+  return ok;
 }
 void driveOutput() {
   if(!detector.sounding) { output(false); return; }
   const auto sample=sampleBuzzer(config.sound,config.toneHz,detector.soundingElapsed(millis()));
   output(sample.enabled,sample.hz);
+  if(!outputReady) detector.cancel(millis()); // Do not retry a failed tone every loop.
 }
 bool configureOutput() {
-  output(false);
-  if(pwmAttached) { ledcDetach(BuzzerPin); pwmAttached=false; }
-  const uint32_t inactive=config.active && config.activeLow?HIGH:LOW;
-  // Preload the hardware latch while still high-Z, even after LEDC detached
-  // and Arduino's pin bus manager has temporarily released this GPIO.
-  gpio_set_level(static_cast<gpio_num_t>(BuzzerPin),inactive);
-  pinMode(BuzzerPin,OUTPUT); digitalWrite(BuzzerPin,inactive);
-  actualSound=false;
-  if(config.active) return outputReady=true;
-  pwmAttached=ledcAttach(BuzzerPin,config.toneHz,8);
-  if(pwmAttached) ledcWrite(BuzzerPin,0);
-  return outputReady=pwmAttached;
+  outputReady=buzzerOutput.configure(config.active,config.activeLow);
+  actualSound=buzzerOutput.sounding(); return outputReady;
 }
-void stopNow() { detector.cancel(millis()); output(false); }
+bool stopNow() { detector.cancel(millis()); return output(false,0,true); }
 void logJson(JsonObject out,const LogRecord& r) {
   char boot[9]; snprintf(boot,sizeof(boot),"%08lX",static_cast<unsigned long>(r.bootId));
   out["seq"]=r.seq; out["bootId"]=boot; out["uptimeMs"]=r.uptimeMs; out["epochMs"]=r.epochMs;
-  out["type"]=r.type?"test":"motion"; out["result"]=r.result==1?"muted":r.result==2?"disarmed":"sounded";
+  out["type"]=r.type?"test":"motion"; out["result"]=r.result==1?"muted":r.result==2?"disarmed":r.result==3?"output_failed":"sounded";
   out["distanceCm"]=r.distanceCm; out["energy"]=r.energy;
 }
 void stateJson(JsonObject out) {
@@ -135,12 +146,13 @@ void stateJson(JsonObject out) {
   out["freeHeap"]=ESP.getFreeHeap(); out["minFreeHeap"]=ESP.getMinFreeHeap(); out["loopMaxUs"]=loopMaxUs;
   out["queueDrops"]=queueDrops+callbackDrops.load(); out["txDrops"]=txDrops;
   out["storageReady"]=storageReady; out["storageErrors"]=storageErrors; out["outputReady"]=outputReady;
+  out["buzzerPwmAttached"]=buzzerIo.pwmPresent(); out["buzzerIdleHigh"]=buzzerOutput.idleHigh();
   out["radarReady"]=radarConfig.ready; out["radarError"]=radarConfig.error;
   out["radarFrameErrors"]=radarParser.errors; out["settingsCorrupt"]=storage.settingsCorrupt;
   out["settingsMigrated"]=storage.settingsMigrated; out["profileSaveFailed"]=storage.profileSaveFailed;
 }
 void snapshot(JsonObject out) {
-  out["deviceId"]=deviceId; out["version"]="1.0.2"; out["bootId"]=bootId;
+  out["deviceId"]=deviceId; out["version"]="1.0.3"; out["bootId"]=bootId;
   JsonObject profile=out["hardware"].to<JsonObject>(); profile["sensorModel"]=hardware::SensorModel;
   profile["pirPin"]=hardware::PirPin; profile["buzzerPin"]=hardware::BuzzerPin; profile["radarSupported"]=hardware::RadarSupported;
   configJson(out["config"].to<JsonObject>(),config); stateJson(out["state"].to<JsonObject>());
@@ -167,7 +179,7 @@ void recordEvent(bool test) {
   if(!storageReady || lastIssued>=MaxSafeInteger) { ++queueDrops; return; }
   StorageJob job{}; job.op=StorageOp::Append;
   auto& r=job.record; r.seq=lastIssued+1; r.bootId=bootNumber; r.uptimeMs=uptime(); r.epochMs=epoch(); r.type=test?1:0;
-  r.result=test?0:!config.armed?2:config.muted?1:0;
+  r.result=test?(!outputReady?3:0):!config.armed?2:config.muted?1:!outputReady?3:0;
   if(config.radar && online(millis())) { r.distanceCm=radarSample.distanceCm; r.energy=radarSample.motionEnergy; }
   seal(r);
   if(storage.enqueue(job)) lastIssued=r.seq; else ++queueDrops;
@@ -299,7 +311,12 @@ void handleCommand(Link& link,const char* text,size_t length,uint32_t ownerEpoch
   // Stop always reaches the output, even if a flooding client exhausted reply
   // slots. Other mutations require response capacity before execution.
   if(!strcmp(op,"stop")) {
-    stopNow(); if(link.replies.count()<3) success(link,id,ownerEpoch,session); else ++queueDrops; return;
+    const bool stopped=stopNow();
+    if(link.replies.count()<3) {
+      if(stopped) success(link,id,ownerEpoch,session);
+      else error(link,id,"output_unavailable","buzzer output could not be stopped safely",ownerEpoch,session);
+    } else ++queueDrops;
+    return;
   }
   Config candidate;
   if(!strcmp(op,"set")) {
@@ -358,7 +375,9 @@ void handleCommand(Link& link,const char* text,size_t length,uint32_t ownerEpoch
   if(!strcmp(op,"test")) {
     if(!outputReady) { error(link,id,"output_unavailable","buzzer GPIO initialization failed",ownerEpoch,session); return; }
     if(!detector.test(millis())) { error(link,id,"busy","buzzer is already sounding",ownerEpoch,session); return; }
-    driveOutput(); recordEvent(true); success(link,id,ownerEpoch,session); return;
+    driveOutput(); recordEvent(true);
+    if(!outputReady) { stopNow(); error(link,id,"output_unavailable","buzzer output could not start",ownerEpoch,session); return; }
+    success(link,id,ownerEpoch,session); return;
   }
   if(!strcmp(op,"clear")) {
     if(!storageReady) { error(link,id,"storage_unavailable","persistent log store is unavailable",ownerEpoch,session); return; }
@@ -507,8 +526,9 @@ void loop() {
   static uint32_t lastLoop=micros(),stateAt=0;
   const uint32_t started=micros(); const uint32_t interval=started-lastLoop; lastLoop=started; if(interval>loopMaxUs) loopMaxUs=interval;
   if constexpr(hardware::RadarSupported) handleRadar();
-  const uint32_t now=millis(); if(detector.tick(now,motion(now),online(now))) recordEvent(false);
-  driveOutput(); receive(); handleStorage(); handlePendingReply(); driveOutput();
+  const uint32_t now=millis(); const bool triggered=detector.tick(now,motion(now),online(now));
+  driveOutput(); if(triggered) recordEvent(false);
+  receive(); handleStorage(); handlePendingReply(); driveOutput();
   if(static_cast<uint32_t>(now-stateAt)>=200) {
     stateAt=now; JsonDocument d; d["event"]="state"; stateJson(d["data"].to<JsonObject>());
     if(usbSession) usbLink.state(d);
@@ -516,8 +536,8 @@ void loop() {
   }
   transmit(millis());
   const uint32_t afterTx=millis();
-  if(detector.tick(afterTx,motion(afterTx),online(afterTx))) recordEvent(false);
-  driveOutput();
+  const bool triggeredAfterTx=detector.tick(afterTx,motion(afterTx),online(afterTx));
+  driveOutput(); if(triggeredAfterTx) recordEvent(false);
   const uint32_t work=micros()-started; if(work>loopMaxUs) loopMaxUs=work;
   // Yield one scheduler tick; all deadlines remain millis-driven and independent
   // of connected clients. No serial/radar/filesystem waits occur in this task.

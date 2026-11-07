@@ -52,6 +52,27 @@ test('uncalibrated log time remains boot-relative and manual tests are distingui
   assert.equal(testLog.label, '手动测试'); assert.match(testLog.detail, /不计入/);
 });
 
+test('output failure logs survive pagination and cache restore with an explicit failure label', () => {
+  const store = storage(), cache = new LogCache('failed-output', store);
+  cache.applyPage(page([entry(1, { result: 'output_failed' })], 1));
+  cache.flush();
+  const restored = new LogCache('failed-output', store);
+  assert.equal(restored.cursor, 1);
+  assert.equal(restored.entries[0].result, 'output_failed');
+  assert.equal(displayEntry(restored.entries[0]).resultLabel, '蜂鸣器输出失败');
+});
+
+test('passive polarity changes are validated and require firmware with idle-level support', () => {
+  const current = { ...protocol.DEFAULT_CONFIG }, draft = toDraft(current);
+  draft.activeLow = true;
+  for (const version of ['1.0.3', '1.0.3-demo', '1.1.0']) assert.deepEqual(makePatch(draft, current, version), { activeLow: true });
+  for (const version of ['1.0.2', '', undefined, '1.0.3-beta']) assert.throws(() => makePatch(draft, current, version), /1\.0\.3/);
+  draft.activeLow = 'true'; assert.throws(() => makePatch(draft, current, '1.0.3'), /触发极性/);
+  draft.activeLow = false; assert.deepEqual(makePatch(draft, { ...current, activeLow: true }, '1.0.2'), { activeLow: false });
+  draft.buzzerMode = 'active'; draft.activeLow = true;
+  assert.deepEqual(makePatch(draft, current, '1.0.2'), { buzzerMode: 'active', activeLow: true });
+});
+
 test('HC form rejects fractions, out-of-range values and other sensors, never submits legacy radar fields', () => {
   const current = {...protocol.DEFAULT_CONFIG}, draft = toDraft(current);
   assert.equal(draft.sensor, 'pir'); assert.equal('radarMaxGate' in draft, false);
