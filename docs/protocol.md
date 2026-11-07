@@ -43,7 +43,7 @@ motion detection or buzzer deadlines.
 | op | additional request fields | response data |
 | --- | --- | --- |
 | get | none | snapshot |
-| set | `config`: partial config | snapshot, only after validated/persisted settings and radar acknowledgement |
+| set | `config`: partial config | snapshot, only after validation, persistence and settings readback |
 | time | `epochMs`: UTC Unix milliseconds | snapshot |
 | logs | `after`: last sequence, `limit`: 1..5 (default 5) | log page |
 | test | none | snapshot; bounded manual buzzer test, does not increment triggerCount |
@@ -52,7 +52,7 @@ motion detection or buzzer deadlines.
 
 `test` is an explicit user action and bypasses armed/muted, but cannot extend
 an already running beep. It returns `busy` when a beep is already active.
-Disarming, muting, changing sensor/output settings and stop must promptly turn
+Disarming, muting, changing output settings and stop must promptly turn
 off an existing output. Normal motion remains recorded while muted/disarmed.
 
 Snapshot:
@@ -63,7 +63,7 @@ Snapshot:
 
 The version starts with `1.`. `deviceId` is a stable chip identifier. Capacity
 is 1000 records. `triggerCount` counts accepted motion episodes this boot,
-never manual tests or individual radar data frames.
+never manual tests or repeated HIGH samples from the same held PIR output.
 
 ## Configuration
 
@@ -118,16 +118,21 @@ episode. Further activity is merged, never queues another beep or extends it.
 After output ends, wait cooldownMs and a continuous releaseMs quiet period
 before accepting a *new* confirmed rise. Held activity cannot retrigger on
 expiry. All elapsed timers handle uint32 millis rollover. No unbounded loops,
-blocking delay, filesystem writes, or radar configuration waits in BLE callbacks.
+blocking delay or filesystem writes in BLE callbacks.
 No UART sensor is required or polled by this hardware profile.
 
 State includes:
 
 ```
-{motion,present,sounding,phase,uptimeMs,triggerCount,timeKnown,
- distanceCm,motionEnergy,stillEnergy,radarAgeMs,
- freeHeap,minFreeHeap,loopMaxUs,queueDrops,txDrops}
+{motion,present,sounding,outputOn,phase,uptimeMs,triggerCount,timeKnown,
+ freeHeap,minFreeHeap,loopMaxUs,queueDrops,txDrops,
+ storageReady,storageErrors,settingsMigrated,profileSaveFailed,outputReady}
 ```
+
+For HC-SR505, motion/present reflect its digital output signal; neither is a
+claim of static human occupancy. Legacy distance/energy fields can still be
+returned for wire compatibility, but are zero in this profile and are not
+measurements. Clients must not show distance or energy instruments.
 
 Phases: `warmup`, `ready`, `sounding`, `cooldown`, `waiting_release`,
 `sensor_offline`. Clients tolerate added state fields.
