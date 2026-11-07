@@ -1,0 +1,4 @@
+{
+  "description": "复制为 project.private.config.json 后填写自己的小程序 AppID，不要提交真实本地配置",
+  "appid": "YOUR_OWN_WECHAT_APPID"
+}

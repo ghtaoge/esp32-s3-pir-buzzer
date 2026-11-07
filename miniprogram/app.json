@@ -1,0 +1,14 @@
+{
+  "pages": ["pages/index/index"],
+  "window": {
+    "navigationBarTitleText": "感应小哨兵",
+    "navigationBarBackgroundColor": "#f4f7f5",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f4f7f5"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "permission": {
+    "scope.bluetooth": { "desc": "用于连接您选择的感应器、调整参数及同步触发记录" }
+  }
+}

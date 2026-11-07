@@ -1,0 +1,23 @@
+{
+  "description": "ESP32-S3 感应器微信小程序，真实 BLE 协议 v1",
+  "projectname": "s3-sentinel",
+  "appid": "touristappid",
+  "compileType": "miniprogram",
+  "miniprogramRoot": "./",
+  "libVersion": "3.8.0",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "minified": true,
+    "urlCheck": true,
+    "checkInvalidKey": true,
+    "checkSiteMap": false
+  },
+  "packOptions": {
+    "ignore": [
+      { "type": "folder", "value": "tests" },
+      { "type": "file", "value": "README.md" },
+      { "type": "file", "value": "project.private.config.json.example" }
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "esp32-s3-pir-buzzer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ESP32-S3 motion sentinel with USB/BLE PC and WeChat clients",
+  "scripts": {
+    "start": "node pc/server.js",
+    "test": "node tools/test-js.js",
+    "test:protocol": "node --test tests/protocol.test.js",
+    "test:firmware": "node tools/test-firmware.js",
+    "check:public": "node tools/check-public.js",
+    "check:generated": "node tools/check-generated.js",
+    "benchmark": "node --expose-gc tools/benchmark.js",
+    "benchmark:firmware": "node tools/benchmark-firmware.js",
+    "check": "npm run test && npm run test:firmware && npm run check:generated && npm run check:public"
+  },
+  "engines": {"node": ">=20"}
+}
